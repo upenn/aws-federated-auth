@@ -16,13 +16,17 @@ https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp.html
 
 ## Installation
 
+```console
+
 pip install git+ssh://git@github.com/upenn/aws-federated-auth.git 
+
+```
 
 ## Example
 
 Get script help
 
-```python
+```console
 
 aws-federated-auth --help
 
@@ -30,7 +34,7 @@ aws-federated-auth --help
 
 Display all authorized accounts
 
-```python
+```console
 
 aws-federated-auth --list
 
@@ -38,7 +42,7 @@ aws-federated-auth --list
 
 Display and generate profiles for all authorized accounts
 
-```python
+```console
 
 aws-federated-auth
 
@@ -46,7 +50,7 @@ aws-federated-auth
 
 Display and generate profiles for specific AWS account
 
-```python
+```console
 
 aws-federated-auth --account 123456789
 
@@ -54,7 +58,7 @@ aws-federated-auth --account 123456789
 
 Display and generate profile for specific AWS account and specifiy session duration
 
-```python
+```console
 
 aws-federated-auth --duration 1200
 
@@ -64,7 +68,7 @@ aws-federated-auth --duration 1200
 Included is a sample spec file for generating a single file distribution.
 If your use case isn't one that works with pip installs you can repackage to meet your needs.
 
-```python
+```console
 
 pyinstaller aws-federated-auth.spec
 
