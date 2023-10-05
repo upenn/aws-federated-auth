@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aws-federated-auth"
+authors = [
+    {name = "Jim Denk", email="jdenk@wharton.upenn.edu"},
+]
+maintainers = []
+description = "Navigate Enhanced Client or Proxy (ECP) authorization from a Security Assertion Markup Language (SAML) Identity Provider (IDP) for Amazon Web Services (AWS) Single Sign On (SSO) federation."
+readme = "README.md"
+requires-python = ">=3.7"
+keywords = ["SAML","AWS","SSO","federated","federation","credentials","creds","IDP","ECP","IAM","Role","STS"]
+license = {text = "MIT"}
+version = "0.1.0"
+dependencies = [
+    "requests",
+    "boto3",
+    "keyring",
+]
+
+[tool.setuptools.packages]
+find = {}
+
+[project.scripts]
+aws-federated-auth = "shib.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/upenn/aws-federated-auth"
+"Repository" = "https://github.com/upenn/aws-federated-auth"
+"Documentation" = "https://github.com/upenn/aws-federated-auth"
