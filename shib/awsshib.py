@@ -10,7 +10,7 @@
 """
 
 __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
-__version__ = "0.4.0"
+__version__ = "1.0.0"
 
 import os
 from shib import ecpshib

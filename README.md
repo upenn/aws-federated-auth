@@ -18,7 +18,7 @@ https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp.html
 
 ```console
 
-pip install git+ssh://git@github.com/upenn/aws-federated-auth.git 
+pip install aws-federated-auth 
 
 ```
 

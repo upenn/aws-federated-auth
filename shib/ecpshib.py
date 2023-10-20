@@ -14,7 +14,7 @@
 """
 
 __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
-__version__ = "0.9.0"
+__version__ = "1.0.0"
 
 #Requirements for Shib Processing
 import os
