@@ -14,7 +14,7 @@
 """
 
 __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 #Requirements for Shib Processing
 import os
@@ -103,7 +103,9 @@ class ECPShib(object):
         Returns:
             A SOAP byte string.
         """
+        logger.debug(f"structuring the datetime from utcnow")
         now = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        logger.debug(f"generating a UUID")
         uuid = '_' + str.upper(str(uuid4())).replace('-', '')
 
         #Construct an XML namespace as recommended https://docs.python.org/3/library/xml.etree.elementtree.html
@@ -130,7 +132,7 @@ class ECPShib(object):
 
         issuer = ET.SubElement(authn_request, ET.QName(self.ns["saml2"], "Issuer"))
         issuer.text = "urn:amazon:webservices"
-        logger.debug(ET.tostring(envelope))
+        logger.debug(f"SAML assertion payload: {ET.tostring(envelope)}")
         self.saml_payload = ET.tostring(envelope)
 
     def call_consumer(self, checkcookie=False):
@@ -154,9 +156,10 @@ class ECPShib(object):
         
         #check for existing session, if it's valid, nothing to do.
 
-        logger.debug("Calling the assertion consumer endpoint with just the session data")
+        logger.debug("Calling the assertion consumer endpoint with session data, not using cookies.")
 
         if not self.call_consumer():
+            logger.debug("Current session can't access consumer endpoint walking through ECP SAML call.")
 
             #configure the payload for SAML auth
             self.get_saml_payload()
@@ -164,17 +167,19 @@ class ECPShib(object):
             logger.debug(f"Calling the shibboleth ECP endpoint at {self.idpentryurl}")
             try:
                 headers = {'Content-Type': 'text/xml', 'charset': 'utf-8'}
+                logger.debug(f"Duo factor set to {self.duo_factor} for authentication call.")
                 if self.duo_factor:
                     headers["X-Shibboleth-Duo-Factor"] = self.duo_factor
                 if self.duo_factor == "passcode":
                     duo_passcode = input('Code:')
                     headers["X-Shibboleth-Duo-Passcode"] = duo_passcode
                 auth = (self.username, self.password)
-                logger.debug(self.session.cookies)
+                logger.debug(f"Precall cookies: {self.session.cookies}")
                 response = self.session.post(self.idpentryurl, headers=headers, data=self.saml_payload, auth=auth, timeout=30)
-                logger.debug(self.session.cookies)
+                logger.debug(f"Postcall cookies: {self.session.cookies}")
                 if response.status_code == 200:
                     # Now determine if a bad username and/or password was entered
+                    logger.debug("Decoding response")
                     root = ET.fromstring(response.content.decode())
                     ns = {
                         'saml2': 'urn:oasis:names:tc:SAML:2.0:assertion',
@@ -194,7 +199,7 @@ class ECPShib(object):
                     if status is not None and 'status:AuthnFailed' in status.attrib['Value']:
                         print("Authentication Failed, exiting, nothing done")
                         exit(1)
-
+                    logger.debug(f"Status {status.attrib['Value']}")
                     logger.debug("Authenticated Successfully")
                     self.ecp_response = response.text
 
@@ -204,6 +209,8 @@ class ECPShib(object):
                     logger.debug(f"Authentication failed with status code: {response.status_code}")
             except Exception:
                 raise ValueError
+        else:
+            logger.debug("Current session data able to call consumer endpoint, no ECP SAML call necessary.")
     
     def negotiate(self):
         """Given a IDP Entry URL, handle cookies and do the shibboleth dance.
