@@ -199,7 +199,7 @@ class ECPShib(object):
                     if status is not None and 'status:AuthnFailed' in status.attrib['Value']:
                         print("Authentication Failed, exiting, nothing done")
                         exit(1)
-                    logger.debug(f"Status {status.attrib['Value']}")
+                    #logger.debug(f"Status {status.attrib['Value']}")
                     logger.debug("Authenticated Successfully")
                     self.ecp_response = response.text
 
