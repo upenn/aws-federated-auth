@@ -18,6 +18,7 @@ dependencies = [
     "requests",
     "boto3",
     "keyring",
+    "keyrings.cryptfile; sys_platform == 'linux'",
 ]
 
 [tool.setuptools.packages]
