@@ -61,7 +61,6 @@ import base64
 import getpass
 import logging
 import requests
-import distutils
 
 import sys
 import argparse
@@ -77,11 +76,6 @@ formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"
 log_channel.setFormatter(formatter)
 logger.addHandler(log_channel)
 
-def str2bool(string):
-    try:
-        return bool(distutils.util.strtobool(string))
-    except:
-        raise ValueError
 
 def main():
     """Main: Set up variables argparse, failing back to environment variables.
@@ -103,10 +97,7 @@ def main():
     parser.add_argument('--list',
         help= 'Don\'t generate profiles, just list'
         ' available options passing filters.',
-        type=str2bool,
-        nargs='?',
-        const=True,
-        default=False)
+        action='store_true')
     parser.add_argument('--assertionconsumer',
         help='The shibboleth protected site you want to log into.'
         ' Defaults to https://signin.aws.amazon.com/saml'
@@ -260,6 +251,8 @@ def main():
 
     try:
         import keyring
+        if sys.platform == 'linux':
+            from keyrings import cryptfile
     except ImportError:
         keyring = None
 
