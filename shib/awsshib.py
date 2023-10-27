@@ -380,10 +380,8 @@ class AWSAuthorization(ecpshib.ECPShib):
         except:
             logger.debug("Renegotiate. Authorization second attempt.")
             self.negotiate()
-            try:
-                self.get_aws_authorization()
-            except Exception:
-                logger.error("Authorization failed. Did you accept your MFA prompt?")
+            self.get_aws_authorization()
+            
 
         if not self.aws_accounts:
             self.writeheader = True
