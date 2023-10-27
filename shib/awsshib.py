@@ -259,10 +259,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             " the assertion and identify roles.")
         logger.debug(self.ecp_response)
         #hacky string parsing because elementtree is transforming the data in a breaking manner avoid lxml dependency
-        if self.ecp_response:
-            assertion_text = self.ecp_response.split('<soap11:Body>')[1].split('</soap11:Body>')[0]
-        else:
-            logger.error("Assertion data empty, did you respond to MFA request in time?")
+        assertion_text = self.ecp_response.split('<soap11:Body>')[1].split('</soap11:Body>')[0]
         root = ET.fromstring(self.ecp_response)
         saml_response = root.find('S:Body/saml2p:Response', self.ns)
         self.assertion = b64encode(assertion_text.encode('utf-8')).decode("us-ascii")
@@ -383,7 +380,10 @@ class AWSAuthorization(ecpshib.ECPShib):
         except:
             logger.debug("Renegotiate. Authorization second attempt.")
             self.negotiate()
-            self.get_aws_authorization()
+            try:
+                self.get_aws_authorization()
+            except Exception:
+                logger.error("Authorization failed. Did you accept your MFA prompt?")
 
         if not self.aws_accounts:
             self.writeheader = True
