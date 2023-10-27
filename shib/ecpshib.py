@@ -141,12 +141,13 @@ class ECPShib(object):
             self.load_cookies()
         try:
             session_test = self.session.get(self.assertionconsumer)
-            if session_test == 200:
+            if session_test.status_code == 200:
                 logger.debug(f"Consumer endpoint {self.assertionconsumer} called successfully from session")
                 return True
             elif checkcookie and self.cookiejar_filename:
                 return self.call_consumer(checkcookie=True)
             else:
+                logger.debug(f"Consumer endpoint {self.assertionconsumer} returned {session_test.status_code} with {session_test.text}")
                 return False
         except Exception:
             raise ValueError
