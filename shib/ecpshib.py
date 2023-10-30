@@ -140,8 +140,9 @@ class ECPShib(object):
         if checkcookie:
             self.load_cookies()
         try:
+            logger.debug("I think after this line, is when things get weird.")
             session_test = self.session.get(self.assertionconsumer)
-            logger.debug(session_test)
+            logger.debug(f"session test response: {session_test}")
             if session_test == 200:
                 logger.debug(f"Consumer endpoint {self.assertionconsumer} called successfully from session")
                 return True
