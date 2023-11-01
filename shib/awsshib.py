@@ -346,6 +346,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             " Expecting: {0}".format(file_name))
         config = configparser.RawConfigParser()
         config.read(file_name)
+        has_content = False
         for account in self.aws_accounts:
             for aws_role in account.aws_roles:
                 # Put the credentials into a saml specific section instead of clobbering
@@ -359,10 +360,14 @@ class AWSAuthorization(ecpshib.ECPShib):
                     config.set(aws_role.profile_name, 'aws_access_key_id', aws_role.token['Credentials']['AccessKeyId'])
                     config.set(aws_role.profile_name, 'aws_secret_access_key', aws_role.token['Credentials']['SecretAccessKey'])
                     config.set(aws_role.profile_name, 'aws_session_token', aws_role.token['Credentials']['SessionToken'])
+                    has_content = True
 
-        # Write the updated config file
-        with open(file_name, 'w+') as configfile:
-            config.write(configfile)
+        if has_content:
+            # Write the updated config file
+            with open(file_name, 'w+') as configfile:
+                config.write(configfile)
+        else:
+            logger.info(f"No tokens were retrieved")
     
     def authorize(
         self,

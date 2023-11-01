@@ -214,7 +214,7 @@ def main():
     # Make awsconfigfile if not exist.
     if not os.path.exists(awsconfigfile): 
         os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True)
-        logger.info(f"Not creating credentials file")
+        logger.debug(f"Not creating credentials file")
         # with open(expanduser(awsconfigfile), 'w'):
         #     pass
 
