@@ -79,6 +79,7 @@ class AWSRole(object):
                 SAMLAssertion=assertion
             )   
         except:
+            logging.exception("Failed to establish STS connection")
             logger.warning("failed to establish STS connection for profile {0}".format(self.profile_name))
             #raise ValueError
     
