@@ -214,8 +214,8 @@ def main():
     # Make awsconfigfile if not exist.
     if not os.path.exists(awsconfigfile): 
         os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True) 
-        with open(expanduser(awsconfigfile), 'w'):
-            pass
+        # with open(expanduser(awsconfigfile), 'w'):
+        #     pass
 
     logger.debug("awsconfigfile: {0}".format(awsconfigfile))
 
