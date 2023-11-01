@@ -213,7 +213,8 @@ def main():
         awsconfigfile = os.getenv('AWS_SHARED_CREDENTIALS_FILE', config_default)
     # Make awsconfigfile if not exist.
     if not os.path.exists(awsconfigfile): 
-        os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True) 
+        os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True)
+        logger.info(f"Not creating credentials file")
         # with open(expanduser(awsconfigfile), 'w'):
         #     pass
 
