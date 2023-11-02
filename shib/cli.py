@@ -211,10 +211,10 @@ def main():
         awsconfigfile = args.awsconfigfile
     else:
         awsconfigfile = os.getenv('AWS_SHARED_CREDENTIALS_FILE', config_default)
-    # Make awsconfigfile if not exist.
+    # Make directory for aws credentials file if it does not exist
     if not os.path.exists(awsconfigfile): 
         os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True)
-        logger.debug(f"Not creating credentials file")
+        # Removing this since it means we create a 0 byte credentials file if we hit an exception later
         # with open(expanduser(awsconfigfile), 'w'):
         #     pass
 
@@ -310,7 +310,6 @@ def main():
                   "approve your Duo request")
             if password_stored and keyring is not None:
                 keyring.delete_password("aws-federated-auth", "password")
-
 
 
 if __name__ == "__main__":

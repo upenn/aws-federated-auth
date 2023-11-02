@@ -13,6 +13,9 @@ __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
 __version__ = "1.0.0"
 
 import os
+
+import botocore.session
+
 from shib import ecpshib
 import logging
 import xml.etree.ElementTree as ET
@@ -68,10 +71,36 @@ class AWSRole(object):
             and self.account_number == other.account_number
         )
 
+    def get_botocore_session(self):
+        logger.debug(f"Creating a new botocore session that will be used to create the higher level session object")
+        botocore_session = botocore.session.get_session()
+        available_profiles = botocore_session.available_profiles
+        is_profile_available = False
+        first_available_profile = None
+        if self.profile_name is not None:
+            logger.debug(f"Profile is set to {self.profile_name} - checking to make sure that profile is actually "
+                         f"available")
+            for available_profile in available_profiles:
+                if first_available_profile is None:
+                    first_available_profile = available_profile
+                if available_profile == self.profile_name:
+                    is_profile_available = True
+
+            if not is_profile_available:
+                logger.info(f"AWS profile {self.profile_name} provided via the AWS_PROFILE environment variable is not "
+                            f"available - switching to use {first_available_profile} as the profile for this session")
+                botocore_session.set_config_variable("profile", first_available_profile)
+
+        return botocore_session
+
     def get_token(self, assertion, region):
         """ get STS token from AWS for role """
         try:
-            self.sts_session = boto3.client('sts', region_name=region)
+            logger.info(f"Starting STS session with profile {self.profile_name}")
+            botocore_session = self.get_botocore_session()
+
+            session = boto3.session.Session(botocore_session=botocore_session, region_name=region)
+            self.sts_session = session.client('sts', region_name=region)
             self.token = self.sts_session.assume_role_with_saml(
                 DurationSeconds=self.max_duration,
                 RoleArn=self.role_arn,
@@ -79,21 +108,23 @@ class AWSRole(object):
                 SAMLAssertion=assertion
             )   
         except:
-            logging.exception("Failed to establish STS connection")
-            logger.warning("failed to establish STS connection for profile {0}".format(self.profile_name))
+            logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
             #raise ValueError
     
     def get_session(self, region):
         """ establish an AWS session """
         if self.token:
             try:
+                botocore_session = self.get_botocore_session()
                 self.boto_session = boto3.Session(
                     aws_access_key_id=self.token['Credentials']['AccessKeyId'],
                     aws_secret_access_key=self.token['Credentials']['SecretAccessKey'],
                     aws_session_token=self.token['Credentials']['SessionToken'],
+                    botocore_session=botocore_session,
                     region_name=region
                 )
             except:
+                logger.exception(f"Failed to create boto session")
                 raise ValueError
         else:
             logger.warning("no token associated with role with which to generate session.")
@@ -185,6 +216,7 @@ class AWSAccount(object):
                     self.account_alias,
                     1
                 )
+
 
 class AWSAuthorization(ecpshib.ECPShib):
     """ Instantiates an instance of AWSAuthorization.  """
@@ -423,7 +455,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                             try:
                                 aws_role.get_session(region=self.region)
                             except:
-                                logger.warning("Failed to establist a session for {0}".format(aws_role.profile_name))
+                                logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
                                 #raise ValueError
                             try:
                                 if not duration:
