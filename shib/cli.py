@@ -253,6 +253,8 @@ def main():
 
     try:
         import keyring
+        if sys.platform == 'linux':
+            from keyrings import cryptfile
     except ImportError:
         keyring = None
 
