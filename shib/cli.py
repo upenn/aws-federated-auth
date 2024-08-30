@@ -259,7 +259,7 @@ def main():
     password = None
     password_stored = False
 
-    if keyring is not None:
+    if keyring is not None and not args.storepass:
         try:
             password = keyring.get_password("aws-federated-auth", "password")
         except Exception:
