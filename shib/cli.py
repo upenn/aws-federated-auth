@@ -135,8 +135,9 @@ def main():
         ' otherwise, ~/.aws-federated-auth.cookies')
     parser.add_argument('--logging',
         help='Set log level. IF DEBUG environment value set, use that.'
-        ' otherwise, "INFO"',
-        choices=['critical', 'warning', 'error','info','debug'])
+        ' otherwise, "WARN"',
+        choices=['critical', 'warning', 'error','info','debug'],
+        default='warning')
     parser.add_argument('--duration',
         help='Duration before timeout of session in seconds.'
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
