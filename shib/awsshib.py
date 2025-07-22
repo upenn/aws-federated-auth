@@ -234,7 +234,9 @@ class AWSAuthorization(ecpshib.ECPShib):
         tossoldcookies=True,
         sslverification=True,
         writeheader=False,
-        loglevel="INFO"
+        loglevel="INFO",
+        sort_display=None,
+        split_display=None
     ):
         ecpshib.ECPShib.__init__(
             self,
@@ -256,6 +258,8 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.region = region
         self.aws_accounts=[]
         self.writeheader=True
+        self.sort_display = sort_display
+        self.split_display = split_display
 
         logger.setLevel(logging.getLevelName(loglevel))
         
@@ -345,9 +349,13 @@ class AWSAuthorization(ecpshib.ECPShib):
     def display_roles(self, access_list):
         """ Output function for commandline display """
         if access_list:
-            template = "{0:65} {2:14} {3:12}" 
+            template = "{0:65} {2:14} {3:12}"
+            template_width = 65 + 1 + 14 + 1
+            longest_role_name = 12
         else:
             template = "{0:65} {1:12} {2:14} {3:12}"
+            template_width = 65 + 1 + 12 + 1 + 14 + 1
+            longest_role_name = 12
         header = template.format(
             "profile_name".replace("_"," ").upper(),
             "max_duration".replace("_"," ").upper(),
@@ -359,17 +367,42 @@ class AWSAuthorization(ecpshib.ECPShib):
             print(header)
             self.writeheader = False
 
+        # Flatten all roles into a single list for sorting
+        roles = []
         for account in self.aws_accounts:
             for aws_role in account.aws_roles:
                 if aws_role.token:
-                    print(
-                        template.format(
-                            aws_role.profile_name,
-                            aws_role.max_duration,
-                            account.account_number,
-                            aws_role.role_name
-                        )
+                    roles.append(
+                        {
+                            'profile_name': aws_role.profile_name,
+                            'max_duration': aws_role.max_duration,
+                            'account_number': account.account_number,
+                            'role_name': aws_role.role_name
+                        }
                     )
+                    longest_role_name = max(longest_role_name, len(aws_role.role_name))
+
+        # Sort the output per sort argument
+        if self.sort_display:
+            logger.debug(f"Sorting the output by {self.sort_display}")
+            for sort_key in reversed(self.sort_display):
+                roles.sort(key=lambda x: x[sort_key])
+        
+        # Display the roles
+        for i,role in enumerate(roles):
+            if self.split_display: 
+                for split_key in self.split_display:
+                    if (role[split_key] != roles[i-1][split_key]) or i == 0:
+                        print("-" * (template_width + longest_role_name))
+                        break
+            print(
+                template.format(
+                    role['profile_name'],
+                    role['max_duration'],
+                    role['account_number'],
+                    role['role_name']
+                )
+            )
 
     def write_profile(self):
         """ Output function for profile writing """

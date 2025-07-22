@@ -148,6 +148,20 @@ def main():
     parser.add_argument('--user',
         help='Login as this user'
         ' If unset you will be prompted for user')
+    parser.add_argument('--sort_display',
+        help='Sort the display output. Listing multiple column names will'
+        ' sort in ascending order of the column names listed. Defaults to sorting by profile_name.',
+        nargs='+',
+        choices=['account_number', 'max_duration', 'profile_name', 'role_name'],
+        default=['profile_name']
+    )
+    parser.add_argument('--split_display',
+        help='Split the display output with a horizontal line between different groups.'
+        ' Multiple columns names can be specified. Defaults to splitting by account_number.',
+        nargs='+',
+        choices=['account_number', 'max_duration', 'profile_name', 'role_name'],
+        default=['account_number']
+    )
 
     args = parser.parse_args()
     # Variables
@@ -180,6 +194,12 @@ def main():
         if 60*60*12 < session_duration <= 0:
             raise argparse.ArgumentTypeError("%s is an invalid number"
         " of seconds" % args.duration)
+
+    if args.sort_display:
+        logger.debug("Sort the display output by the following columns: {0}".format(args.sort_display))
+
+    if args.split_display:
+        logger.debug("Split the display output by the following columns: {0}".format(args.split_display))
 
     if args.cookiejar:
         cookiejar_filename = args.cookiejar
@@ -289,7 +309,9 @@ def main():
             output_format=outputformat,
             config_file=awsconfigfile,
             cookiejar_filename=cookiejar_filename,
-            loglevel=log_level)
+            loglevel=log_level,
+            sort_display=args.sort_display,
+            split_display=args.split_display)
 
         auth_args = {}
         if args.rolename:
