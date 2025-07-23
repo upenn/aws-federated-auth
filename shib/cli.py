@@ -142,8 +142,11 @@ def main():
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
         'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
     parser.add_argument('--storepass',
-        help='Store the password to the system keyring service and retrieve on following requests'
-        ' If unset you will be prompted for password on every request',
+        help='Store the password to the system keyring service to allow for automatic retrieval'
+        ' on following requests. If set, you will be prompted for a password that will then'
+        ' be stored in the system keyring service. If unset, the script will attempt to retrieve'
+        ' a previously stored password from the system keyring service and then prompt you for'
+        ' a password if there is not a stored password.',
         action='store_true')
     parser.add_argument('--user',
         help='Login as this user'
