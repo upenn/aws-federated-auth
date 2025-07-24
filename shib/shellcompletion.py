@@ -53,23 +53,37 @@ _aws_profile_export() {
     _bash_completion_script = """# `export AWS_PROFILE=` completion script for aws-federated-auth
 
 _aws_profile_complete() {
-    local cur profiles
+    local cur profiles prefix
     cur="${COMP_WORDS[COMP_CWORD]}"
-    
-    # Only trigger completion if the command starts with `export AWS_PROFILE=`
-    if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE="* ]]; then
-        # Extract profile names from ~/.aws/credentials
-        profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
+    prefix="AWS_PROFILE="
 
-        # Remove existing value if partially typed like AWS_PROFILE=abc
-        local prefix="${COMP_WORDS[1]%%=*}="
+    if [[ ${#COMP_WORDS[@]} -eq 2 ]]; then
+        # Assume = is not broken into separate word
+        # Only trigger completion if the command starts with `export AWS_PROFILE=`
+        if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE="* ]]; then
+            # Extract profile names from ~/.aws/credentials
+            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
 
-        COMPREPLY=( $(compgen -W "${profiles}" -- "${cur#${prefix}}") )
+            COMPREPLY=( $(compgen -W "${profiles}" -- "${cur#${prefix}}") )
+        fi
+    elif [[ ${#COMP_WORDS[@]} -gt 2 ]]; then
+        # Assume = is broken into separate word
+        # Only trigger completion if the command starts with `export AWS_PROFILE=`
+        if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE" && ${COMP_WORDS[2]} == "="* ]]; then
+            # Extract profile names from ~/.aws/credentials
+            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
+            
+            if [[ ${cur} == "=" ]]; then
+                cur=""
+            fi
+
+            COMPREPLY=( $(compgen -W "${profiles}" -- "${cur}") )
+        fi
     fi
 }
 
 # Register the completion for the `export` command
-complete -F _aws_profile_complete export
+complete -F _aws_profile_complete exportt
 """
 
     ########## Class methods ##########
