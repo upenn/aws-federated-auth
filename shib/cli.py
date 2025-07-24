@@ -154,6 +154,13 @@ def main():
         ' Specifying this option will prevent AWS authentication from happening for this' \
         ' specific run of the script.',
         choices=['bash', 'omz'])
+    parser.add_argument('--completion-location',
+        help='Location to install the shell completion scripts.'
+        ' Defaults to ~/._aws_profile_complete.sh for bash and'
+        ' ~/.oh-my-zsh/completions/_aws_profile_export for oh-my-zsh.'
+        ' For omz, be sure that the location is in your $fpath and that the name of the file'
+        ' is _aws_profile_export.',
+        type=str)
 
     args = parser.parse_args()
     # Variables
@@ -171,7 +178,10 @@ def main():
     if args.install_completion:
         logger.info(f"Installing shell completion script for {args.install_completion} shell.")
         shellcompletion_instance = shellcompletion.ShellCompletion(loglevel=log_level)
-        shellcompletion_instance.install_completion(args.install_completion)
+        shellcompletion_instance.install_completion(
+            shell_type=args.install_completion,
+            completion_location=args.completion_location
+        )
         return # Exit after installing completion script
 
     if args.list:

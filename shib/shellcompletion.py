@@ -89,59 +89,62 @@ complete -F _aws_profile_complete exportt
     ########## Class methods ##########
     def install_completion(
         self,
-        shell_type: str
+        shell_type: str,
+        completion_location: str = None
     ):
         """Install the shell completion script for the specified shell type."""
         if shell_type not in ('bash', 'omz'):
             raise ValueError("Unsupported shell type. Use 'bash' or 'omz'.")
         
         if shell_type == 'bash':
-            self._install_bash_completion()
+            self._install_bash_completion(completion_location)
         elif shell_type == 'omz':
-            self._install_omz_completion()
+            self._install_omz_completion(completion_location)
         return
 
-    def _install_bash_completion(self):
+    def _install_bash_completion(self, completion_location: str = None):
         """Install the bash completion script."""
-        file_location = '~/.bash_completion'
+        if not completion_location:
+            completion_location = '~/._aws_profile_complete.sh'
         
         # Check if file exists, create if not
-        if not os.path.exists(os.path.expanduser(file_location)):
-            with open(os.path.expanduser(file_location), 'w') as f:
+        if not os.path.exists(os.path.expanduser(completion_location)):
+            with open(os.path.expanduser(completion_location), 'w') as f:
                 f.write(self._bash_completion_script)
             logger.debug(f"Bash completion script:\n{self._bash_completion_script}")
-            print(f"Bash completion script installed at {file_location}")
+            print(f"Bash completion script installed at {completion_location}")
         else:
             # Check if script is already present
-            with open(os.path.expanduser(file_location), 'r') as f:
+            with open(os.path.expanduser(completion_location), 'r') as f:
                 content = f.read()
             if '_aws_profile_complete()' in content:
-                logger.error(f"Bash completion script _aws_profile_complete() already exists in {file_location}.\n"
+                logger.error(f"Bash completion script _aws_profile_complete() already exists in {completion_location}.\n"
                               "No changes made.\n"
                               "If you want to update it, please remove the existing script first.")
                 return
             else: # Add script to end of existing file
-                with open(os.path.expanduser(file_location), 'a') as f:
+                with open(os.path.expanduser(completion_location), 'a') as f:
                     f.write('\n' + self._bash_completion_script)
                 logger.debug(f"Bash completion script:\n{self._bash_completion_script}")
-                print(f"Bash completion script appended to {file_location}")
+                print(f"Bash completion script appended to {completion_location}")
                 
-        print("Please restart your terminal or run `source ~/.bash_completion` to apply changes.")
+        print("Please restart your terminal to apply changes.")
         return
     
-    def _install_omz_completion(self):
+    def _install_omz_completion(self, completion_location: str = None):
         """Install the oh-my-zsh completion script."""
-        file_location = '~/.oh-my-zsh/custom/completions/_aws_profile_export'
+        if not completion_location:
+            completion_location = '~/.oh-my-zsh/custom/completions/_aws_profile_export'
         
         # Check if file exists, create if not
-        if not os.path.exists(os.path.expanduser(file_location)):
-            with open(os.path.expanduser(file_location), 'w') as f:
+        if not os.path.exists(os.path.expanduser(completion_location)):
+            with open(os.path.expanduser(completion_location), 'w') as f:
                 f.write(self._omz_completion_script)
             logger.debug(f"oh-my-zsh completion script:\n{self._omz_completion_script}")
-            print(f"oh-my-zsh completion script installed at {file_location}")
+            print(f"oh-my-zsh completion script installed at {completion_location}")
             print("Please restart your terminal or run `omz reload` to apply changes.")
         else:
-            logger.error(f"oh-my-zsh completion script _aws_profile_export() already exists in {file_location}.\n"
+            logger.error(f"oh-my-zsh completion script _aws_profile_export() already exists in {completion_location}.\n"
                           "No changes made.\n"
                           "If you want to update it, please remove the existing script first.")
             
