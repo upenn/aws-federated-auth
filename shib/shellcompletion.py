@@ -59,7 +59,7 @@ _aws_profile_complete() {
     # Only trigger completion if the command starts with `export AWS_PROFILE=`
     if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE="* ]]; then
         # Extract profile names from ~/.aws/credentials
-        profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
+        profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
 
         # Remove existing value if partially typed like AWS_PROFILE=abc
         local prefix="${COMP_WORDS[1]%%=*}="
