@@ -128,6 +128,22 @@ complete -F _aws_profile_complete export
                 logger.debug(f"Bash completion script:\n{self._bash_completion_script}")
                 print(f"Bash completion script appended to {completion_location}")
                 
+        # Source the completion script in .bashrc
+        # Ask for user confirmation to add sourcing line
+        add_source = input(f'To automatically load the completion script on terminal start, `source {completion_location}` needs to be added to your .bashrc file.\n'
+                           'Do you want to add this line? (y/n): ').strip().lower()
+        if add_source == 'y':
+            if not os.path.exists(os.path.expanduser('~/.bashrc')):
+                with open(os.path.expanduser('~/.bashrc'), 'w') as f:
+                    f.write(f'source {os.path.expanduser(completion_location)}\n')
+            else:
+                with open(os.path.expanduser('~/.bashrc'), 'a') as f:
+                    f.write(f'\nsource {os.path.expanduser(completion_location)}\n')
+            print("Source line added to your .bashrc file.")
+        else:
+            print("You can manually add the following line to your .bashrc file to enable completion on terminal start:")
+            print(f'source {os.path.expanduser(completion_location)}')
+
         print("Please restart your terminal to apply changes.")
         return
     
