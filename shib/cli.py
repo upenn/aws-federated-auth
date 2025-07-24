@@ -67,6 +67,7 @@ import argparse
 import configparser
 from os.path import expanduser
 from shib import awsshib
+from shib import shellcompletion
 
 logger = logging.getLogger(__name__)
 logger.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
@@ -148,6 +149,11 @@ def main():
     parser.add_argument('--user',
         help='Login as this user'
         ' If unset you will be prompted for user')
+    parser.add_argument('--install-completion',
+        help='Install shell completion script for the specified shell type.'
+        ' Specifying this option will prevent AWS authentication from happening for this' \
+        ' specific run of the script.',
+        choices=['bash', 'omz'])
 
     args = parser.parse_args()
     # Variables
@@ -162,6 +168,13 @@ def main():
         log_level = 'INFO'
     if level:
         logger.setLevel(level)
+
+    # Shell completion script installation
+    if args.install_completion:
+        logger.info(f"Installing shell completion script for {args.install_completion} shell.")
+        shellcompletion_instance = shellcompletion.ShellCompletion()
+        shellcompletion_instance.install_completion(args.install_completion)
+        return # Exit after installing completion script
 
     if args.list:
         logger.debug("Selected to only list results, rather than"
