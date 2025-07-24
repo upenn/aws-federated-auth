@@ -160,19 +160,17 @@ def main():
 
     # set DEBUG to enable debug logging
     #logging.basicConfig(level=logging.INFO)
-    level = None
     if args.logging:
         log_level = args.logging.upper()
-        level = logging.getLevelName(args.logging.upper())
     else:
-        log_level = 'INFO'
-    if level:
-        logger.setLevel(level)
+        log_level = 'ERROR'
+    level = logging.getLevelName(log_level)
+    logger.setLevel(level)
 
     # Shell completion script installation
     if args.install_completion:
         logger.info(f"Installing shell completion script for {args.install_completion} shell.")
-        shellcompletion_instance = shellcompletion.ShellCompletion()
+        shellcompletion_instance = shellcompletion.ShellCompletion(loglevel=log_level)
         shellcompletion_instance.install_completion(args.install_completion)
         return # Exit after installing completion script
 

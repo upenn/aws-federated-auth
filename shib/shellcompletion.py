@@ -13,8 +13,13 @@ logger.addHandler(log_channel)
 class ShellCompletion:
     """Shell completion for AWS profile export command."""
 
-    def __init__(self):
-        self.profiles = []
+    def __init__(
+        self,
+        loglevel=None
+    ):
+        """Initialize the ShellCompletion instance."""
+        if loglevel:
+            logger.setLevel(logging.getLevelName(loglevel.upper()))
 
     ########## Shell completion scripts ##########
     _omz_completion_script = """#compdef export
@@ -69,8 +74,9 @@ complete -F _aws_profile_complete export
 
     ########## Class methods ##########
     def install_completion(
-            self,
-            shell_type: str):
+        self,
+        shell_type: str
+    ):
         """Install the shell completion script for the specified shell type."""
         if shell_type not in ('bash', 'omz'):
             raise ValueError("Unsupported shell type. Use 'bash' or 'omz'.")
