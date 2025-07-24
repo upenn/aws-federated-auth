@@ -83,7 +83,7 @@ _aws_profile_complete() {
 }
 
 # Register the completion for the `export` command
-complete -F _aws_profile_complete exportt
+complete -F _aws_profile_complete export
 """
 
     ########## Class methods ##########
