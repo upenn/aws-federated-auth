@@ -106,6 +106,8 @@ complete -F _aws_profile_complete export
         """Install the bash completion script."""
         if not completion_location:
             completion_location = '~/._aws_profile_complete.sh'
+        # Confirm that the location exists
+        os.makedirs(os.path.dirname(os.path.expanduser(completion_location)), exist_ok=True)
         
         # Check if file exists, create if not
         if not os.path.exists(os.path.expanduser(completion_location)):
@@ -151,7 +153,13 @@ complete -F _aws_profile_complete export
         """Install the oh-my-zsh completion script."""
         if not completion_location:
             completion_location = '~/.oh-my-zsh/custom/completions/_aws_profile_export'
-        
+        # Confirm that the location ends in `_aws_profile_export`
+        if not completion_location.endswith('_aws_profile_export'):
+            logger.error(f"Completion location must end with '_aws_profile_export'.")
+            return
+        # Confirm that location exists
+        os.makedirs(os.path.dirname(os.path.expanduser(completion_location)), exist_ok=True)
+            
         # Check if file exists, create if not
         if not os.path.exists(os.path.expanduser(completion_location)):
             with open(os.path.expanduser(completion_location), 'w') as f:
