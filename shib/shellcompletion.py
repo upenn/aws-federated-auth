@@ -1,6 +1,7 @@
 """Shell completion add-on scripts for `export AWS_PROFILE` command."""
 import os
 import logging
+import subprocess
 
 logger = logging.getLogger(__name__)
 logger.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
@@ -157,19 +158,62 @@ complete -F _aws_profile_complete export
         if not completion_location.endswith('_aws_profile_export'):
             logger.error(f"Completion location must end with '_aws_profile_export'.")
             return
-        # Confirm that location exists
-        os.makedirs(os.path.dirname(os.path.expanduser(completion_location)), exist_ok=True)
-            
+         
         # Check if file exists, create if not
+        script_added = False
         if not os.path.exists(os.path.expanduser(completion_location)):
+            # Confirm that location exists
+            os.makedirs(os.path.dirname(os.path.expanduser(completion_location)), exist_ok=True)
+            # Write the completion script to the file
             with open(os.path.expanduser(completion_location), 'w') as f:
                 f.write(self._omz_completion_script)
             logger.debug(f"oh-my-zsh completion script:\n{self._omz_completion_script}")
             print(f"oh-my-zsh completion script installed at {completion_location}")
-            print("Please restart your terminal or run `omz reload` to apply changes.")
+            script_added = True
         else:
             logger.error(f"oh-my-zsh completion script _aws_profile_export() already exists in {completion_location}.\n"
                           "No changes made.\n"
                           "If you want to update it, please remove the existing script first.")
             
+        # Confirm that location is in $fpath
+        fpath = self._get_zsh_fpath()
+        if os.path.dirname(os.path.expanduser(completion_location)) not in fpath:
+            logger.debug(f"Directory {os.path.dirname(os.path.expanduser(completion_location))} is not in user's $fpath.")
+            add_fpath = input(f'The directory {os.path.dirname(os.path.expanduser(completion_location))} is not in your $fpath.\n'
+                              'This location needs to be in your $fpath for the completion script to load automatically.\n'
+                              'Do you want to add the location to your $fpath? (y/n): ').strip().lower()
+            if add_fpath == 'y':
+                with open(os.path.expanduser('~/.zshrc'), 'r') as f:
+                    previous_content = f.read()
+                with open(os.path.expanduser('~/.zshrc'), 'w') as f:
+                    f.write(f'# added by aws-federated-auth --install-completion\nfpath=({os.path.dirname(os.path.expanduser(completion_location))} $fpath)\n\n')
+                    f.write(previous_content)
+                print("Directory added to your $fpath.")
+                script_added = True
+                logger.debug(f"Added fpath line to ~/.zshrc: fpath=({os.path.dirname(os.path.expanduser(completion_location))} $fpath)")
+            else:
+                print("You can manually add the following line to your .zshrc file before oh-my-zsh is loaded to enable completion on terminal start:")
+                print(f'fpath=({os.path.dirname(os.path.expanduser(completion_location))} $fpath)')
+                logger.debug(f"User chose not to add fpath line to ~/.zshrc: fpath=({os.path.dirname(os.path.expanduser(completion_location))} $fpath)")
+        else:
+            logger.debug(f"Directory {os.path.dirname(os.path.expanduser(completion_location))} is already in user's $fpath.")
+
+        # If script added, prompt to source .zshrc
+        if script_added:
+            print("Please restart your terminal or run `omz reload` to apply changes.")
+
         return
+    
+    def _get_zsh_fpath(self):
+        """Get the current zsh fpath."""
+        try:
+            result = subprocess.run(
+                ['zsh', '-i', '-c', 'print -l $fpath'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True
+            )
+            return result.stdout.strip().split('\n')
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error getting zsh fpath: {e}")
+            return []
