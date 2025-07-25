@@ -41,9 +41,9 @@ _aws_profile_export() {
     # filter for the current value
     # add end quote to each profile
     profiles=(${(f)"$(grep "^\[$curval" ~/.aws/credentials 2>/dev/null \
-                   | sed -e 's/^\[\(.*\)\]$/\\1\"/')"})
+                   | sed -e 's/^\[\(.*\)\]$/\\1/')"})
     
-    compadd -Q -P AWS_PROFILE=\" -U -- ${profiles[@]}
+    compadd -Q -P AWS_PROFILE=\" -S '"' -U -- ${profiles[@]}
     return
   fi
 
