@@ -39,8 +39,7 @@ _aws_profile_export() {
 
     compset -P 'AWS_PROFILE="'
     # pull all profiles from ~/.aws/credentials
-    # filter for the current value
-    # add end quote to each profile
+    # filter for the current value anywhere in the profile name
     profiles=(${(f)"$(grep "^\[.*$curval" ~/.aws/credentials 2>/dev/null \
                    | sed -e 's/^\[\(.*\)\]$/\\1/')"})
     
