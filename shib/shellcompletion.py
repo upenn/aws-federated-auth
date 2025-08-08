@@ -31,19 +31,20 @@ _aws_profile_export() {
 
   # grab the word under the cursor
   cur=${words[CURRENT]}
-
-  # only do our thing if they're completing AWS_PROFILE=
+  # only do our thing if they're completing AWS_PROFILE="
   if [[ $cur == AWS_PROFILE\=\"* ]]; then
+    compstate[insert]="automenu"
     # strip off the whole "AWS_PROFILE=" prefix
     curval=${cur#AWS_PROFILE=\"}
 
+    compset -P 'AWS_PROFILE="'
     # pull all profiles from ~/.aws/credentials
     # filter for the current value
     # add end quote to each profile
-    profiles=(${(f)"$(grep "^\[$curval" ~/.aws/credentials 2>/dev/null \
-                   | sed -e 's/^\[\(.*\)\]$/\\1/')"})
+    profiles=(${(f)"$(grep "^\[.*$curval" ~/.aws/credentials 2>/dev/null \
+                   | sed -e 's/^\[\(.*\)\]$/\1/')"})
     
-    compadd -Q -P AWS_PROFILE=\" -S '"' -U -- ${profiles[@]}
+    compadd -Q -P AWS_PROFILE=\" -U -S '"' -- ${profiles[@]}
     return
   fi
 
