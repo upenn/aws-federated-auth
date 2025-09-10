@@ -35,7 +35,7 @@ REGION:     defaults to us-east-1. AWS region to get credentials for
 IDPURL:     defaults to http://aws.cloud.upenn.edu, the entry into the
             web auth for saml assertions to log into the AWS console as
             a federated user.
-DEBUG:      Used to spit out some additional debugging information, in
+LOGLEVEL:   Used to spit out some additional debugging information, in
             case things aren't working right.
 
 Argument parser values are also available from the --help command.
@@ -133,10 +133,13 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
-    parser.add_argument('--logging',
-        help='Set log level. IF DEBUG environment value set, use that.'
+    parser.add_argument(
+        "--logging",
+        help="Set log level. IF LOGLEVEL environment value set, use that."
         ' otherwise, "INFO"',
-        choices=['critical', 'warning', 'error','info','debug'])
+        type=str.lower,
+        choices=["critical", "warn", "error", "info", "debug"],
+    )
     parser.add_argument('--duration',
         help='Duration before timeout of session in seconds.'
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
@@ -155,16 +158,10 @@ def main():
     args = parser.parse_args()
     # Variables
 
-    # set DEBUG to enable debug logging
-    #logging.basicConfig(level=logging.INFO)
-    level = None
     if args.logging:
-        log_level = args.logging.upper()
-        level = logging.getLevelName(args.logging.upper())
-    else:
-        log_level = 'INFO'
-    if level:
-        logger.setLevel(level)
+        logger.setLevel(logging.getLevelName(args.logging.upper()))
+
+    log_level = logging.getLevelName(logger.getEffectiveLevel())
 
     if args.list:
         logger.debug("Selected to only list results, rather than"
