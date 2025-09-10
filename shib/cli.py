@@ -161,7 +161,7 @@ def main():
     if args.logging:
         logger.setLevel(logging.getLevelName(args.logging.upper()))
 
-    log_level = [k for k, v in logging.getLevelNamesMapping().items() if v == logger.getEffectiveLevel()][0]
+    log_level = logging.getLevelName(logger.getEffectiveLevel())
 
     if args.list:
         logger.debug("Selected to only list results, rather than"
