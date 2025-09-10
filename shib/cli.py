@@ -133,10 +133,13 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
-    parser.add_argument('--logging',
-        help='Set log level. IF LOGLEVEL environment value set, use that.'
+    parser.add_argument(
+        "--logging",
+        help="Set log level. IF LOGLEVEL environment value set, use that."
         ' otherwise, "INFO"',
-        choices=['critical', 'warning', 'error', 'info', 'debug'])
+        type=str.lower,
+        choices=["critical", "warn", "error", "info", "debug"],
+    )
     parser.add_argument('--duration',
         help='Duration before timeout of session in seconds.'
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
@@ -155,15 +158,10 @@ def main():
     args = parser.parse_args()
     # Variables
 
-    level = None
     if args.logging:
-        log_level = args.logging.upper()
-        level = logging.getLevelName(args.logging.upper())
-        logger.setLevel(level)
-    elif os.environ.get("LOGLEVEL") and os.environ.get("LOGLEVEL") in ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]:
-        log_level = os.environ.get("LOGLEVEL")
-    else:
-        log_level = 'INFO'
+        logger.setLevel(logging.getLevelName(args.logging.upper()))
+
+    log_level = [k for k, v in logging.getLevelNamesMapping().items() if v == logger.getEffectiveLevel()][0]
 
     if args.list:
         logger.debug("Selected to only list results, rather than"
