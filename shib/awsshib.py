@@ -413,6 +413,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         config.read(file_name)
         has_content = False
         for account in self.aws_accounts:
+            account_alias = account.account_alias if account.account_alias else account.account_number
             for aws_role in account.aws_roles:
                 # Put the credentials into a saml specific section instead of clobbering
                 # the default credentials
@@ -425,6 +426,9 @@ class AWSAuthorization(ecpshib.ECPShib):
                     config.set(aws_role.profile_name, 'aws_access_key_id', aws_role.token['Credentials']['AccessKeyId'])
                     config.set(aws_role.profile_name, 'aws_secret_access_key', aws_role.token['Credentials']['SecretAccessKey'])
                     config.set(aws_role.profile_name, 'aws_session_token', aws_role.token['Credentials']['SessionToken'])
+                    config.set(aws_role.profile_name, 'account_number', aws_role.account_number)
+                    config.set(aws_role.profile_name, 'account_alias', account_alias)
+                    config.set(aws_role.profile_name, 'role_name', aws_role.role_name)
                     has_content = True
 
         if has_content:

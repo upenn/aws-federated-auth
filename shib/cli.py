@@ -94,6 +94,9 @@ def main():
     parser.add_argument('--rolename',
         help='Filter response by Role Name.'
         ' Ignores case and does substring match. Only value allowed.')
+    parser.add_argument('--profilename',
+        help='Filter response by Profile Name. Only one value allowed.'
+        ' You must have previously authenticated in the past to filter by a specific Profile Name.')
     parser.add_argument('--list',
         help= 'Don\'t generate profiles, just list'
         ' available options passing filters.',
