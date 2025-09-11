@@ -35,7 +35,7 @@ REGION:     defaults to us-east-1. AWS region to get credentials for
 IDPURL:     defaults to http://aws.cloud.upenn.edu, the entry into the
             web auth for saml assertions to log into the AWS console as
             a federated user.
-DEBUG:      Used to spit out some additional debugging information, in
+LOGLEVEL:   Used to spit out some additional debugging information, in
             case things aren't working right.
 
 Argument parser values are also available from the --help command.
@@ -69,7 +69,7 @@ from os.path import expanduser
 from shib import awsshib
 
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
+logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
 logger.propagate = False
 log_channel = logging.StreamHandler()
 formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
@@ -133,17 +133,23 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
-    parser.add_argument('--logging',
-        help='Set log level. IF DEBUG environment value set, use that.'
-        ' otherwise, "INFO"',
-        choices=['critical', 'warning', 'error','info','debug'])
+    parser.add_argument(
+        "--logging",
+        help="Set log level. IF LOGLEVEL environment value set, use that."
+        ' otherwise, "ERROR"',
+        type=str.lower,
+        choices=["critical", "warn", "error", "info", "debug"],
+    )
     parser.add_argument('--duration',
         help='Duration before timeout of session in seconds.'
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
         'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
     parser.add_argument('--storepass',
-        help='Store the password to the system keyring service and retrieve on following requests'
-        ' If unset you will be prompted for password on every request',
+        help='Store the password to the system keyring service to allow for automatic retrieval'
+        ' on following requests. If set, you will be prompted for a password that will then'
+        ' be stored in the system keyring service. If unset, the script will attempt to retrieve'
+        ' a previously stored password from the system keyring service and then prompt you for'
+        ' a password if there is not a stored password.',
         action='store_true')
     parser.add_argument('--user',
         help='Login as this user'
@@ -166,16 +172,10 @@ def main():
     args = parser.parse_args()
     # Variables
 
-    # set DEBUG to enable debug logging
-    #logging.basicConfig(level=logging.INFO)
-    level = None
     if args.logging:
-        log_level = args.logging.upper()
-        level = logging.getLevelName(args.logging.upper())
-    else:
-        log_level = 'INFO'
-    if level:
-        logger.setLevel(level)
+        logger.setLevel(logging.getLevelName(args.logging.upper()))
+
+    log_level = logging.getLevelName(logger.getEffectiveLevel())
 
     if args.list:
         logger.debug("Selected to only list results, rather than"
@@ -279,7 +279,7 @@ def main():
     password = None
     password_stored = False
 
-    if keyring is not None:
+    if keyring is not None and not args.storepass:
         try:
             password = keyring.get_password("aws-federated-auth", "password")
         except Exception:
