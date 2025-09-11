@@ -260,6 +260,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.writeheader=True
         self.sort_display = sort_display
         self.split_display = split_display
+        self.longest_role_name = 12
 
         logger.setLevel(logging.getLevelName(loglevel))
         
@@ -351,11 +352,9 @@ class AWSAuthorization(ecpshib.ECPShib):
         if access_list:
             template = "{0:65} {2:14} {3:12}"
             template_width = 65 + 1 + 14 + 1
-            longest_role_name = 12
         else:
             template = "{0:65} {1:12} {2:14} {3:12}"
             template_width = 65 + 1 + 12 + 1 + 14 + 1
-            longest_role_name = 12
         header = template.format(
             "profile_name".replace("_"," ").upper(),
             "max_duration".replace("_"," ").upper(),
@@ -380,7 +379,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                             'role_name': aws_role.role_name
                         }
                     )
-                    longest_role_name = max(longest_role_name, len(aws_role.role_name))
+                    self.longest_role_name = max(self.longest_role_name, len(aws_role.role_name))
 
         # Sort the output per sort argument
         if self.sort_display:
@@ -393,7 +392,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             if self.split_display: 
                 for split_key in self.split_display:
                     if (role[split_key] != roles[i-1][split_key]) or i == 0:
-                        print("-" * (template_width + longest_role_name))
+                        print("-" * (template_width + self.longest_role_name))
                         break
             print(
                 template.format(
