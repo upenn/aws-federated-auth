@@ -89,14 +89,21 @@ def main():
     )
     parser.add_argument('--account',
         help='Filter profile response by account number.'
-        ' Check multiple accounts by added then with space separation.',
+        ' Check multiple accounts by added them with space separation.',
+        nargs='+')
+    parser.add_argument('--accountalias',
+        help='Filter profile response by account alias.'
+        ' This feature is similar to --account, but uses the account alias.'
+        ' Check multiple account aliases by added them with space separation.'
+        ' You must have previously authenticated in the past to filter by a specific account alias.',
         nargs='+')
     parser.add_argument('--rolename',
         help='Filter response by Role Name.'
         ' Ignores case and does substring match. Only value allowed.')
     parser.add_argument('--profilename',
-        help='Filter response by Profile Name. Only one value allowed.'
-        ' You must have previously authenticated in the past to filter by a specific Profile Name.')
+        help='Filter response by profile name. Check multiple profiles by added them with space separation.'
+        ' You must have previously authenticated in the past to filter by a specific profile name.',
+        nargs='+')
     parser.add_argument('--list',
         help= 'Don\'t generate profiles, just list'
         ' available options passing filters.',
@@ -184,13 +191,23 @@ def main():
         logger.debug("Selected to only list results, rather than"
             " update profiles and tokens")
 
+    ##### Process arguments for filtering accounts and roles to authorize #####
     if args.account:
         logger.debug("Selected to filter by account with the"
         " following values: {0}".format(args.account))
 
+    if args.accountalias:
+        logger.debug("Selected to filter by account alias with the"
+        " following values: {0}".format(args.accountalias))
+
     if args.rolename:
         logger.debug("Selected to filter by role containing the"
         " following {0}".format(args.rolename))
+
+    if args.profilename:
+        logger.debug("Selected to filter by profile name with the"
+        " following value: {0}".format(args.profilename))
+    ###########################################################################
 
     if args.duration:
         session_duration = int(args.duration)
@@ -316,25 +333,66 @@ def main():
             sort_display=args.sort_display,
             split_display=args.split_display)
 
-        auth_args = {}
-        if args.rolename:
-            auth_args['role_name'] = args.rolename
+        # Process filters for authorization
+        auth_args = []
+        role_name_arg = {'role_name': args.rolename} if args.rolename else {}
+        if args.profilename or args.accountalias:
+            config = configparser.ConfigParser(interpolation=None)
+            config.read(awsconfigfile)
 
-        try:
-            if args.account:
-                for account in args.account:
-                    auth_args['account_number'] = account
-                    AWSCreds.authorize(**auth_args)
-            if not args.account:
-                if auth_args:
-                    AWSCreds.authorize(**auth_args)
-                else:
-                    AWSCreds.authorize()
-        except ValueError:
-            print("Unable to parse SAML assertions - this is probably because your password is incorrect or you failed to "
-                  "approve your Duo request")
-            if password_stored and keyring is not None:
-                keyring.delete_password("aws-federated-auth", "password")
+        if args.profilename: # Filter by specific profile
+            for profilename in args.profilename:
+                try:
+                    auth_args.append({
+                        'account_number': config.get(profilename, 'account_number'),
+                        'role_name': config.get(profilename, 'role_name')
+                    })
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    logger.error(f"The profile {profilename} you are trying to filter by does not exist in your"
+                    " aws credentials file. You must have previously authenticated in the past"
+                    " to filter by a specific profile name.")
+                    
+        if args.accountalias: # Filter by specific account alias
+            for accountalias in args.accountalias:
+                try:
+                    accountalias_found = False
+                    for section in config.sections():
+                        if section.startswith(accountalias + "-"):
+                            if config.get(section, 'account_alias', fallback=None) == accountalias:
+                                auth_args.append({
+                                    'account_number': config.get(section, 'account_number'),
+                                    **role_name_arg
+                                })
+                                accountalias_found = True
+                                break
+                    if not accountalias_found:
+                        logger.error(f"The account alias {accountalias} you are trying to filter by does not exist in your"
+                        " aws credentials file. You must have previously authenticated in the past"
+                        " to filter by a specific account alias.")
+                except (StopIteration, configparser.NoSectionError, configparser.NoOptionError):
+                    logger.error(f"The account alias {accountalias} you are trying to filter by does not exist in your"
+                    " aws credentials file. You must have previously authenticated in the past"
+                    " to filter by a specific account alias.")
+                
+        if args.account:
+            for account in args.account:
+                auth_args.append({
+                    'account_number': account,
+                    **role_name_arg
+                })
+                
+        if not auth_args: # Catch all if no account filters provided
+            auth_args.append({**role_name_arg})
+
+        # Authenticate
+        for auth_arg in auth_args:
+            try:
+                AWSCreds.authorize(**auth_arg)
+            except ValueError:
+                print("Unable to parse SAML assertions - this is probably because your password is incorrect or you failed to "
+                        "approve your Duo request")
+                if password_stored and keyring is not None:
+                    keyring.delete_password("aws-federated-auth", "password")
 
 
 if __name__ == "__main__":
