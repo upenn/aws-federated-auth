@@ -51,7 +51,7 @@ _aws_profile_export() {
   _typeset "$@"
 }
 """
-    _bash_completion_script = """# `export AWS_PROFILE=` completion script for aws-federated-auth
+    _bash_completion_script = r"""# `export AWS_PROFILE=` completion script for aws-federated-auth
 
 _aws_profile_complete() {
     local cur profiles prefix
@@ -63,7 +63,7 @@ _aws_profile_complete() {
         # Only trigger completion if the command starts with `export AWS_PROFILE=`
         if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE="* ]]; then
             # Extract profile names from ~/.aws/credentials
-            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
+            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
 
             COMPREPLY=( $(compgen -W "${profiles}" -- "${cur#${prefix}}") )
         fi
@@ -72,7 +72,7 @@ _aws_profile_complete() {
         # Only trigger completion if the command starts with `export AWS_PROFILE=`
         if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE" && ${COMP_WORDS[2]} == "="* ]]; then
             # Extract profile names from ~/.aws/credentials
-            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\\1/')
+            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
             
             if [[ ${cur} == "=" ]]; then
                 cur=""
@@ -85,6 +85,232 @@ _aws_profile_complete() {
 
 # Register the completion for the `export` command
 complete -F _aws_profile_complete export
+
+# `aws-federated-auth` completion script
+
+_aws_federated_auth_complete() {
+    local cur
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    
+    all_options=(
+        "--account"
+        "--rolename"
+        "--list"
+        "--assertionconsumer"
+        "--idpentryurl"
+        "--duofactor"
+        "--awsconfigfile"
+        "--sslverification"
+        "--outputformat"
+        "--region"
+        "--cookiejar"
+        "--logging"
+        "--duration"
+        "--storepass"
+        "--user"
+        "--split_display"
+        "--sort_display"
+        "--install-completion"
+        "--completion-location"
+    )
+    if [[ ${cur} == -* || ( -z ${cur} && $3 == aws-federated-auth ) ]]; then
+        COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+        return
+    fi
+
+    # Find the option being completed
+    # go backwards in COMP_WORDS to find the last --option
+    option=""
+    option_args=()
+    temp_args=()
+    account_numbers=()
+    account_aliases=()
+    role_name=""
+    awsconfigfile="${awsconfigfile/#\~/$HOME}"
+    for ((i=${#COMP_WORDS[@]}-1; i>=0; i--)); do
+        if [[ -z ${option} ]]; then
+            if [[ ${COMP_WORDS[i]} == --* ]]; then
+                option=${COMP_WORDS[i]}
+            elif [[ -n ${COMP_WORDS[i]} ]]; then
+                option_args+=("${COMP_WORDS[i]}")
+            fi
+        else
+            case ${COMP_WORDS[i]} in
+                --account)
+                    account_numbers=("${temp_args[@]}")
+                    temp_args=()
+                    ;;
+                --accountalias)
+                    account_aliases=("${temp_args[@]}")
+                    temp_args=()
+                    ;;
+                --rolename)
+                    if [[ ${#temp_args[@]} -eq 1 ]]; then
+                        role_name="${temp_args[0]}"
+                    fi
+                    temp_args=()
+                    ;;
+                --awsconfigfile)
+                    if [[ ${#temp_args[@]} -eq 1 ]]; then
+                        awsconfigfile="${temp_args[0]/#\~/$HOME}"
+                    fi
+                    temp_args=()
+                    ;;
+                *)
+                    temp_args+=("${COMP_WORDS[i]}")
+                    ;;
+            esac
+        fi
+    done
+
+    case ${option} in
+        --list|--storepass)
+            # No completions for these options
+            COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+            return
+            ;;
+        --duofactor)
+            if [[ ${#option_args[@]} -gt 0 && -z ${cur} ]]; then
+                COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+                return
+            fi
+            matches=("auto" "push" "phone" "passcode")
+            ;;
+        --logging)
+            if [[ ${#option_args[@]} -gt 0 && -z ${cur} ]]; then
+                COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+                return
+            fi
+            matches=("critical" "warn" "error" "info" "debug")
+            ;;
+        --sort_display|--split_display)
+            if [[ ${#option_args[@]} -gt 3 && -z ${cur} ]]; then # Max options reached
+                COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+                return
+            fi
+            matches=("account_number" "max_duration" "profile_name" "role_name")
+            ;;
+        --account)
+            mapfile -t matches < <(
+                awk -v target="$role_name" -v als="$(printf '%s\t' "${account_aliases[@]}")" '
+                    BEGIN {
+                        n_als = split(als, alist, "\t")
+                        for (i = 1; i <= n_als; i++) {
+                            if (alist[i] != "") {
+                                aset[alist[i]] = 1
+                            }
+                        }
+                    }
+                    /^\[/               { account=""; alias=""; role="" }   # new section → reset
+                    /^account_number/   { account=$3 }
+                    /^account_alias/    { alias=$3 }
+                    /^role_name/        { role=$3 }
+                    account && role {
+                        # If no target specified, accept all roles
+                        if ((target == "" || role == target) && !(alias in aset)) {
+                            print account
+                        }
+                        account=""; alias=""; role=""                       # reset after print
+                    }
+                ' "$awsconfigfile" | sort -u
+            )
+            ;;
+        --accountalias)
+            mapfile -t matches < <(
+                awk -v target="$role_name" -v nums="$(printf '%s\t' "${account_numbers[@]}")" '
+                    BEGIN {
+                        n_nums = split(nums, nlist, "\t")
+                        for (i = 1; i <= n_nums; i++) {
+                            if (nlist[i] != "") {
+                                nset[nlist[i]] = 1
+                            }
+                        }
+                    }
+                    /^\[/              { account=""; alias=""; role="" }   # new section → reset
+                    /^account_number/  { account=$3 }
+                    /^account_alias/   { alias=$3 }
+                    /^role_name/       { role=$3 }
+                    alias && role {
+                        # If no target specified, accept all roles
+                        if ((target == "" || role == target) && !(account in nset)) {
+                            print alias
+                        }
+                        account=""; alias=""; role=""                      # reset after print
+                    }
+                ' "$awsconfigfile" | sort -u
+            )
+            ;;
+        --rolename)
+            # Join selected accounts into tab-separated strings for awk
+            nums_joined=""
+            if (( ${#account_numbers[@]} )); then
+                nums_joined="$(printf '%s\t' "${account_numbers[@]}")"
+                nums_joined="${nums_joined%$'\t'}"
+            fi
+
+            aliases_joined=""
+            if (( ${#account_aliases[@]} )); then
+                aliases_joined="$(printf '%s\t' "${account_aliases[@]}")"
+                aliases_joined="${aliases_joined%$'\t'}"
+            fi
+
+            # Collect role names filtered by the selected accounts (if any)
+            mapfile -t matches < <(
+                awk -v nums="$nums_joined" -v als="$aliases_joined" '
+                    BEGIN {
+                        n_ok = split(nums, nlist, "\t");
+                        a_ok = split(als,  alist, "\t");
+                        for (i=1;i<=n_ok;i++) if (nlist[i]!="") nset[nlist[i]] = 1;
+                        for (i=1;i<=a_ok;i++) if (alist[i]!="") aset[alist[i]] = 1;
+                    }
+                    /^\[/               { acc=""; alias=""; role="" }    # new section
+                    /^account_number/   { acc=$3 }
+                    /^account_alias/    { alias=$3 }
+                    /^role_name/        { role=$3 }
+                    role {
+                        # If no filters provided, accept all roles.
+                        # Otherwise require that this section matches either selected account_number or account_alias.
+                        if ((n_ok==0 && a_ok==0) || (n_ok>0 && (acc in nset)) || (a_ok>0 && (alias in aset))) {
+                            print role
+                        }
+                        role=""  # avoid double print within same section
+                    }
+                ' "$awsconfigfile" | sort -u
+            )
+            ;;
+        --profilename)
+            # Collect all profile names (section headers without [ ])
+            mapfile -t matches < <(
+                grep '^\[' "$awsconfigfile" \
+                | sed 's/^\[\(.*\)\]$/\1/' \
+                | sort -u
+            )
+            ;;
+        *)
+            COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
+            return
+            ;;
+    esac
+
+    filtered=()
+    for match in "${matches[@]}"; do 
+        skip=false
+        for arg in "${option_args[@]}"; do
+            if [[ "$match" == "$arg" ]]; then
+                skip=true
+                break
+            fi
+        done
+        if ! $skip; then
+            filtered+=("$match")
+        fi
+    done
+    COMPREPLY=($(compgen -W "${filtered[*]}" -- "${cur}"))
+
+}
+
+# Register the completion for the `aws-federated-auth` command
+complete -F _aws_federated_auth_complete aws-federated-auth
 """
 
     ########## Class methods ##########
