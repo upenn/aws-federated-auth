@@ -38,9 +38,9 @@ _aws_profile_export() {
     curval=${cur#AWS_PROFILE=\"}
 
     compset -P 'AWS_PROFILE="'
-    # pull all profiles from ~/.aws/credentials
+    # pull all profiles from $awsconfigfile
     # filter for the current value anywhere in the profile name
-    profiles=(${(f)"$(grep "^\[.*$curval" ~/.aws/credentials 2>/dev/null \
+    profiles=(${(f)"$(grep "^\[.*$curval" $awsconfigfile 2>/dev/null \
                    | sed -e 's/^\[\(.*\)\]$/\\1/')"})
     
     compadd -Q -P AWS_PROFILE=\" -U -S '"' -- ${profiles[@]}
@@ -62,8 +62,8 @@ _aws_profile_complete() {
         # Assume = is not broken into separate word
         # Only trigger completion if the command starts with `export AWS_PROFILE=`
         if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE="* ]]; then
-            # Extract profile names from ~/.aws/credentials
-            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
+            # Extract profile names from $awsconfigfile
+            profiles=$(grep '^\[' $awsconfigfile 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
 
             COMPREPLY=( $(compgen -W "${profiles}" -- "${cur#${prefix}}") )
         fi
@@ -71,8 +71,8 @@ _aws_profile_complete() {
         # Assume = is broken into separate word
         # Only trigger completion if the command starts with `export AWS_PROFILE=`
         if [[ ${COMP_WORDS[0]} == "export" && ${COMP_WORDS[1]} == "AWS_PROFILE" && ${COMP_WORDS[2]} == "="* ]]; then
-            # Extract profile names from ~/.aws/credentials
-            profiles=$(grep '^\[' ~/.aws/credentials 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
+            # Extract profile names from $awsconfigfile
+            profiles=$(grep '^\[' $awsconfigfile 2>/dev/null | sed 's/^\[\(.*\)\]$/\1/')
             
             if [[ ${cur} == "=" ]]; then
                 cur=""
@@ -94,7 +94,9 @@ _aws_federated_auth_complete() {
     
     all_options=(
         "--account"
+        "--accountalias"
         "--rolename"
+        "--profilename"
         "--list"
         "--assertionconsumer"
         "--idpentryurl"
@@ -108,8 +110,8 @@ _aws_federated_auth_complete() {
         "--duration"
         "--storepass"
         "--user"
-        "--split_display"
         "--sort_display"
+        "--split_display"
         "--install-completion"
         "--completion-location"
     )
@@ -126,7 +128,7 @@ _aws_federated_auth_complete() {
     account_numbers=()
     account_aliases=()
     role_name=""
-    awsconfigfile="${awsconfigfile/#\~/$HOME}"
+    awsconfigfile="$HOME/.aws/credentials"
     for ((i=${#COMP_WORDS[@]}-1; i>=0; i--)); do
         if [[ -z ${option} ]]; then
             if [[ ${COMP_WORDS[i]} == --* ]]; then
@@ -191,6 +193,9 @@ _aws_federated_auth_complete() {
             matches=("account_number" "max_duration" "profile_name" "role_name")
             ;;
         --account)
+            if [[ ! -f $awsconfigfile ]]; then
+                continue
+            fi
             mapfile -t matches < <(
                 awk -v target="$role_name" -v als="$(printf '%s\t' "${account_aliases[@]}")" '
                     BEGIN {
@@ -216,6 +221,9 @@ _aws_federated_auth_complete() {
             )
             ;;
         --accountalias)
+            if [[ ! -f $awsconfigfile ]]; then
+                continue
+            fi
             mapfile -t matches < <(
                 awk -v target="$role_name" -v nums="$(printf '%s\t' "${account_numbers[@]}")" '
                     BEGIN {
@@ -241,6 +249,9 @@ _aws_federated_auth_complete() {
             )
             ;;
         --rolename)
+            if [[ ! -f $awsconfigfile ]]; then
+                continue
+            fi
             # Join selected accounts into tab-separated strings for awk
             nums_joined=""
             if (( ${#account_numbers[@]} )); then
@@ -279,6 +290,9 @@ _aws_federated_auth_complete() {
             )
             ;;
         --profilename)
+            if [[ ! -f $awsconfigfile ]]; then
+                continue
+            fi
             # Collect all profile names (section headers without [ ])
             mapfile -t matches < <(
                 grep '^\[' "$awsconfigfile" \
@@ -359,21 +373,23 @@ complete -F _aws_federated_auth_complete aws-federated-auth
                 
         # Source the completion script in .bashrc
         # Ask for user confirmation to add sourcing line
-        add_source = input(f'To automatically load the completion script on terminal start, `source {completion_location}` needs to be added to your .bashrc file.\n'
-                           'Do you want to add this line? (y/n): ').strip().lower()
-        if add_source == 'y':
-            if not os.path.exists(os.path.expanduser('~/.bashrc')):
-                with open(os.path.expanduser('~/.bashrc'), 'w') as f:
-                    f.write(f'source {os.path.expanduser(completion_location)}\n')
+        sourcetext = f'source {os.path.expanduser(completion_location)}\n'
+        if not sourcetext in open(os.path.expanduser('~/.bashrc'), 'r').read():
+            add_source = input(f'To automatically load the completion script on terminal start, `source {completion_location}` needs to be added to your .bashrc file.\n'
+                               'Do you want to add this line? (y/n): ').strip().lower()
+            if add_source == 'y':
+                if not os.path.exists(os.path.expanduser('~/.bashrc')):
+                    with open(os.path.expanduser('~/.bashrc'), 'w') as f:
+                        f.write(sourcetext)
+                else:
+                    with open(os.path.expanduser('~/.bashrc'), 'a') as f:
+                        f.write(f'\n{sourcetext}')
+                print("Source line added to your .bashrc file.")
             else:
-                with open(os.path.expanduser('~/.bashrc'), 'a') as f:
-                    f.write(f'\nsource {os.path.expanduser(completion_location)}\n')
-            print("Source line added to your .bashrc file.")
-        else:
-            print("You can manually add the following line to your .bashrc file to enable completion on terminal start:")
-            print(f'source {os.path.expanduser(completion_location)}')
+                print("You can manually add the following line to your .bashrc file to enable completion on terminal start:")
+                print(f'source {os.path.expanduser(completion_location)}')
 
-        print("Please restart your terminal to apply changes.")
+            print("Please restart your terminal to apply changes.")
         return
     
     def _install_omz_completion(self, completion_location: str = None):
