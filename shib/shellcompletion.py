@@ -193,112 +193,108 @@ _aws_federated_auth_complete() {
             matches=("account_number" "max_duration" "profile_name" "role_name")
             ;;
         --account)
-            if [[ ! -f $awsconfigfile ]]; then
-                continue
-            fi
-            mapfile -t matches < <(
-                awk -v target="$role_name" -v als="$(printf '%s\t' "${account_aliases[@]}")" '
-                    BEGIN {
-                        n_als = split(als, alist, "\t")
-                        for (i = 1; i <= n_als; i++) {
-                            if (alist[i] != "") {
-                                aset[alist[i]] = 1
+            if [[ -f $awsconfigfile ]]; then
+                mapfile -t matches < <(
+                    awk -v target="$role_name" -v als="$(printf '%s\t' "${account_aliases[@]}")" '
+                        BEGIN {
+                            n_als = split(als, alist, "\t")
+                            for (i = 1; i <= n_als; i++) {
+                                if (alist[i] != "") {
+                                    aset[alist[i]] = 1
+                                }
                             }
                         }
-                    }
-                    /^\[/               { account=""; alias=""; role="" }   # new section → reset
-                    /^account_number/   { account=$3 }
-                    /^account_alias/    { alias=$3 }
-                    /^role_name/        { role=$3 }
-                    account && role {
-                        # If no target specified, accept all roles
-                        if ((target == "" || role == target) && !(alias in aset)) {
-                            print account
+                        /^\[/               { account=""; alias=""; role="" }   # new section → reset
+                        /^account_number/   { account=$3 }
+                        /^account_alias/    { alias=$3 }
+                        /^role_name/        { role=$3 }
+                        account && role {
+                            # If no target specified, accept all roles
+                            if ((target == "" || role == target) && !(alias in aset)) {
+                                print account
+                            }
+                            account=""; alias=""; role=""                       # reset after print
                         }
-                        account=""; alias=""; role=""                       # reset after print
-                    }
-                ' "$awsconfigfile" | sort -u
-            )
+                    ' "$awsconfigfile" | sort -u
+                )
+            fi
             ;;
         --accountalias)
-            if [[ ! -f $awsconfigfile ]]; then
-                continue
-            fi
-            mapfile -t matches < <(
-                awk -v target="$role_name" -v nums="$(printf '%s\t' "${account_numbers[@]}")" '
-                    BEGIN {
-                        n_nums = split(nums, nlist, "\t")
-                        for (i = 1; i <= n_nums; i++) {
-                            if (nlist[i] != "") {
-                                nset[nlist[i]] = 1
+            if [[ -f $awsconfigfile ]]; then
+                mapfile -t matches < <(
+                    awk -v target="$role_name" -v nums="$(printf '%s\t' "${account_numbers[@]}")" '
+                        BEGIN {
+                            n_nums = split(nums, nlist, "\t")
+                            for (i = 1; i <= n_nums; i++) {
+                                if (nlist[i] != "") {
+                                    nset[nlist[i]] = 1
+                                }
                             }
                         }
-                    }
-                    /^\[/              { account=""; alias=""; role="" }   # new section → reset
-                    /^account_number/  { account=$3 }
-                    /^account_alias/   { alias=$3 }
-                    /^role_name/       { role=$3 }
-                    alias && role {
-                        # If no target specified, accept all roles
-                        if ((target == "" || role == target) && !(account in nset)) {
-                            print alias
+                        /^\[/              { account=""; alias=""; role="" }   # new section → reset
+                        /^account_number/  { account=$3 }
+                        /^account_alias/   { alias=$3 }
+                        /^role_name/       { role=$3 }
+                        alias && role {
+                            # If no target specified, accept all roles
+                            if ((target == "" || role == target) && !(account in nset)) {
+                                print alias
+                            }
+                            account=""; alias=""; role=""                      # reset after print
                         }
-                        account=""; alias=""; role=""                      # reset after print
-                    }
-                ' "$awsconfigfile" | sort -u
-            )
+                    ' "$awsconfigfile" | sort -u
+                )
+            fi
             ;;
         --rolename)
-            if [[ ! -f $awsconfigfile ]]; then
-                continue
-            fi
-            # Join selected accounts into tab-separated strings for awk
-            nums_joined=""
-            if (( ${#account_numbers[@]} )); then
-                nums_joined="$(printf '%s\t' "${account_numbers[@]}")"
-                nums_joined="${nums_joined%$'\t'}"
-            fi
+            if [[ -f $awsconfigfile ]]; then
+                # Join selected accounts into tab-separated strings for awk
+                nums_joined=""
+                if (( ${#account_numbers[@]} )); then
+                    nums_joined="$(printf '%s\t' "${account_numbers[@]}")"
+                    nums_joined="${nums_joined%$'\t'}"
+                fi
 
-            aliases_joined=""
-            if (( ${#account_aliases[@]} )); then
-                aliases_joined="$(printf '%s\t' "${account_aliases[@]}")"
-                aliases_joined="${aliases_joined%$'\t'}"
-            fi
+                aliases_joined=""
+                if (( ${#account_aliases[@]} )); then
+                    aliases_joined="$(printf '%s\t' "${account_aliases[@]}")"
+                    aliases_joined="${aliases_joined%$'\t'}"
+                fi
 
-            # Collect role names filtered by the selected accounts (if any)
-            mapfile -t matches < <(
-                awk -v nums="$nums_joined" -v als="$aliases_joined" '
-                    BEGIN {
-                        n_ok = split(nums, nlist, "\t");
-                        a_ok = split(als,  alist, "\t");
-                        for (i=1;i<=n_ok;i++) if (nlist[i]!="") nset[nlist[i]] = 1;
-                        for (i=1;i<=a_ok;i++) if (alist[i]!="") aset[alist[i]] = 1;
-                    }
-                    /^\[/               { acc=""; alias=""; role="" }    # new section
-                    /^account_number/   { acc=$3 }
-                    /^account_alias/    { alias=$3 }
-                    /^role_name/        { role=$3 }
-                    role {
-                        # If no filters provided, accept all roles.
-                        # Otherwise require that this section matches either selected account_number or account_alias.
-                        if ((n_ok==0 && a_ok==0) || (n_ok>0 && (acc in nset)) || (a_ok>0 && (alias in aset))) {
-                            print role
+                # Collect role names filtered by the selected accounts (if any)
+                mapfile -t matches < <(
+                    awk -v nums="$nums_joined" -v als="$aliases_joined" '
+                        BEGIN {
+                            n_ok = split(nums, nlist, "\t");
+                            a_ok = split(als,  alist, "\t");
+                            for (i=1;i<=n_ok;i++) if (nlist[i]!="") nset[nlist[i]] = 1;
+                            for (i=1;i<=a_ok;i++) if (alist[i]!="") aset[alist[i]] = 1;
                         }
-                        role=""  # avoid double print within same section
-                    }
-                ' "$awsconfigfile" | sort -u
-            )
+                        /^\[/               { acc=""; alias=""; role="" }    # new section
+                        /^account_number/   { acc=$3 }
+                        /^account_alias/    { alias=$3 }
+                        /^role_name/        { role=$3 }
+                        role {
+                            # If no filters provided, accept all roles.
+                            # Otherwise require that this section matches either selected account_number or account_alias.
+                            if ((n_ok==0 && a_ok==0) || (n_ok>0 && (acc in nset)) || (a_ok>0 && (alias in aset))) {
+                                print role
+                            }
+                            role=""  # avoid double print within same section
+                        }
+                    ' "$awsconfigfile" | sort -u
+                )
+            fi
             ;;
         --profilename)
-            if [[ ! -f $awsconfigfile ]]; then
-                continue
+            if [[ -f $awsconfigfile ]]; then
+                # Collect all profile names (section headers without [ ])
+                mapfile -t matches < <(
+                    grep '^\[' "$awsconfigfile" \
+                    | sed 's/^\[\(.*\)\]$/\1/' \
+                    | sort -u
+                )
             fi
-            # Collect all profile names (section headers without [ ])
-            mapfile -t matches < <(
-                grep '^\[' "$awsconfigfile" \
-                | sed 's/^\[\(.*\)\]$/\1/' \
-                | sort -u
-            )
             ;;
         *)
             COMPREPLY=( $(compgen -W "${all_options[*]}" -- "$cur") )
