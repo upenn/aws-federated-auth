@@ -13,6 +13,8 @@ __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
 __version__ = "1.0.0"
 
 import os
+import sys
+import json
 
 import botocore.session
 
@@ -347,6 +349,26 @@ class AWSAuthorization(ecpshib.ECPShib):
         else:
             logger.debug("No roles returned")    
 
+    def output_credential_process(self):
+        """ Output credentials in AWS credential_process JSON format """
+        # Find the first role with a token (should only be one in credential_process mode)
+        for account in self.aws_accounts:
+            for aws_role in account.aws_roles:
+                if aws_role.token:
+                    credentials = aws_role.token['Credentials']
+                    output = {
+                        "Version": 1,
+                        "AccessKeyId": credentials['AccessKeyId'],
+                        "SecretAccessKey": credentials['SecretAccessKey'],
+                        "SessionToken": credentials['SessionToken'],
+                        "Expiration": credentials['Expiration'].isoformat()
+                    }
+                    print(json.dumps(output))
+                    return
+
+        # If no token found, output error
+        logger.error("No credentials available for credential_process output")
+
     def display_roles(self, access_list):
         """ Output function for commandline display """
         if access_list:
@@ -443,7 +465,8 @@ class AWSAuthorization(ecpshib.ECPShib):
         account_number=None,
         access_list=False,
         duration=None,
-        silent=False
+        silent=False,
+        credential_process=False
     ):
         """ Function to navigate authorization """
         if not self.assertion:
@@ -512,9 +535,14 @@ class AWSAuthorization(ecpshib.ECPShib):
                             logger.warning("No sts role token was created so no session can be established")
                     if not account.account_alias:
                         account.set_alias(region=self.region)
-                self.write_profile()
-                if not silent:
-                    self.display_roles(access_list=access_list)
+
+                # Handle credential_process mode
+                if credential_process:
+                    self.output_credential_process()
+                else:
+                    self.write_profile()
+                    if not silent:
+                        self.display_roles(access_list=access_list)
             else:
                 if not silent:
                     self.display_roles(access_list=access_list)

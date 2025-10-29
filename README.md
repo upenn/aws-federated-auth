@@ -64,6 +64,15 @@ aws-federated-auth --duration 1200
 
 ```
 
+## Using as AWS credential_process
+
+Configure in `~/.aws/config`:
+
+```ini
+[profile my-profile]
+credential_process = aws-federated-auth --credential-process --account <account-number> --rolename <role-name> --user <username>
+```
+
 ## Create binary version
 Included is a sample spec file for generating a single file distribution.
 If your use case isn't one that works with pip installs you can repackage to meet your needs.
