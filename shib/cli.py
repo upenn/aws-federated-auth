@@ -191,6 +191,10 @@ def main():
         ' For omz, be sure that the location is in your $fpath and that the name of the file'
         ' is _aws_profile_export.',
         type=str)
+    parser.add_argument('--credential-process',
+        help='Output credentials in AWS credential_process JSON format to stdout.'
+        ' Does not write credentials to disk. Requires --account and --rolename to be specified.',
+        action='store_true')
 
     args = parser.parse_args()
     # Variables
@@ -243,6 +247,13 @@ def main():
 
     if args.split_display:
         logger.debug("Split the display output by the following columns: {0}".format(args.split_display))
+
+    # Validate credential-process requirements
+    if args.credential_process:
+        if not args.account or len(args.account) != 1:
+            parser.error("--credential-process requires exactly one --account to be specified")
+        if not args.rolename:
+            parser.error("--credential-process requires --rolename to be specified")
 
     if args.cookiejar:
         cookiejar_filename = args.cookiejar
@@ -311,7 +322,7 @@ def main():
     if args.user:
         username = args.user
     else:
-        print("Username:", end=' ')
+        print("Username:", end=' ', file=sys.stderr)
         username = input()
 
     try:
@@ -339,9 +350,9 @@ def main():
                 logger.error("Keyring dependency is not included - in order to use 'storepass' you need to run pip "
                              "install keyring first")
     if password is None:
-        print("You must provide a password in order to sign in")
+        print("You must provide a password in order to sign in", file=sys.stderr)
     else:
-        print("Processing authorization, this takes longer the more access you have selected.")
+        print("Processing authorization, this takes longer the more access you have selected.", file=sys.stderr)
         AWSCreds = awsshib.AWSAuthorization(
             username=username,
             password=password,
@@ -410,10 +421,10 @@ def main():
         # Authenticate
         for auth_arg in auth_args:
             try:
-                AWSCreds.authorize(**auth_arg)
+                AWSCreds.authorize(**auth_arg, credential_process=args.credential_process)
             except ValueError:
                 print("Unable to parse SAML assertions - this is probably because your password is incorrect or you failed to "
-                        "approve your Duo request")
+                        "approve your Duo request", file=sys.stderr)
                 if password_stored and keyring is not None:
                     keyring.delete_password("aws-federated-auth", "password")
 

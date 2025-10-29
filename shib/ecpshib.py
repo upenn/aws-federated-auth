@@ -18,6 +18,7 @@ __version__ = "1.0.1"
 
 #Requirements for Shib Processing
 import os
+import sys
 import logging
 import requests
 import pickle
@@ -171,7 +172,8 @@ class ECPShib(object):
                 if self.duo_factor:
                     headers["X-Shibboleth-Duo-Factor"] = self.duo_factor
                 if self.duo_factor == "passcode":
-                    duo_passcode = input('Code:')
+                    print('Code:', end=' ', file=sys.stderr)
+                    duo_passcode = input()
                     headers["X-Shibboleth-Duo-Passcode"] = duo_passcode
                 auth = (self.username, self.password)
                 logger.debug(f"Precall cookies: {self.session.cookies}")
@@ -197,7 +199,7 @@ class ECPShib(object):
                     )
                     # if a bad username/password was entered, print a message to the user and exit(1)
                     if status is not None and 'status:AuthnFailed' in status.attrib['Value']:
-                        print("Authentication Failed, exiting, nothing done")
+                        print("Authentication Failed, exiting, nothing done", file=sys.stderr)
                         exit(1)
                     #logger.debug(f"Status {status.attrib['Value']}")
                     logger.debug("Authenticated Successfully")
