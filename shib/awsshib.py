@@ -15,6 +15,7 @@ __version__ = "1.0.0"
 import os
 
 import botocore.session
+from botocore.exceptions import ClientError
 
 from shib import ecpshib
 import logging
@@ -81,10 +82,15 @@ class AWSRole(object):
                 PrincipalArn=self.principal_arn,
                 SAMLAssertion=assertion
             )   
-            # GOING TO WANT TO UPDATE TO HANDLE MAX DURATION ERROR
-        except:
-            logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
-            #raise ValueError
+        except ClientError as e:
+            # Catch given duration too long error and attempt a shorter duration
+            if (e.response["Error"]["Code"] == "ValidationError"
+                    and "DurationSeconds exceeds the MaxSessionDuration" in e.response["Error"]["Message"]):
+                logger.exception("Requested duration of {0} seconds exceeds the maximum session duration for this role. Attempting default max duration of 3600.".format(self.max_duration))
+                self.max_duration = 3600
+                self.get_token(assertion, region)
+            else:
+                logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
     
     def get_session(self, region):
         """ establish an AWS session """
@@ -485,7 +491,8 @@ class AWSAuthorization(ecpshib.ECPShib):
                             if not duration:
                                 prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
                                 # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
-                                if prior_max_duration is not None and int(aws_role.max_duration) != int(prior_max_duration):
+                                if (int(aws_role.max_duration) > 3600
+                                        and (prior_max_duration is None or int(aws_role.max_duration) < int(prior_max_duration))):
                                     logger.debug("Queried max duration {0} is different from stored max duration {1} for {2}, attempting to get new token with updated max duration".format(aws_role.max_duration, prior_max_duration, aws_role.profile_name))
                                     try:
                                         aws_role.get_token(assertion=self.assertion,region=self.region)

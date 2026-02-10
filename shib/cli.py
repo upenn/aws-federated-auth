@@ -358,14 +358,18 @@ def main():
         config.read(awsconfigfile)
         
         # Create max duration dictionary for use in getting tokens during auth
-        max_durations = {
-            f"{config.get(section, 'account_number')}-{config.get(section, 'role_name')}": int(config.get(section, 'max_duration'))
-            for section in config.sections()
-            if config.has_option(section, 'max_duration')
-                and config.has_option(section, 'account_number')
-                and config.has_option(section, 'role_name')
-                and config.has_option(section, 'role_name')
-        }
+        try:
+            max_durations = {
+                f"{config.get(section, 'account_number')}-{config.get(section, 'role_name')}": int(config.get(section, 'max_duration'))
+                for section in config.sections()
+                if config.has_option(section, 'max_duration')
+                    and config.has_option(section, 'account_number')
+                    and config.has_option(section, 'role_name')
+                    and config.has_option(section, 'role_name')
+            }
+        except:
+            logger.exception("Faiiled to parse max durations from aws config file, max duration will not be used to optimize token retrieval. Clear credentials file to fix.")
+            max_durations = {}
 
         # Create an instance of the ECPShib class to handle authentication and token retrieval
         AWSCreds = awsshib.AWSAuthorization(
