@@ -107,6 +107,7 @@ class AWSRole(object):
                 PrincipalArn=self.principal_arn,
                 SAMLAssertion=assertion
             )   
+            # GOING TO WANT TO UPDATE TO HANDLE MAX DURATION ERROR
         except:
             logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
             #raise ValueError
@@ -236,6 +237,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         writeheader=False,
         sort_display=None,
         split_display=None,
+        max_durations={},
         loglevel="ERROR"
     ):
         ecpshib.ECPShib.__init__(
@@ -261,6 +263,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.sort_display = sort_display
         self.split_display = split_display
         self.longest_role_name = 12
+        self.max_durations = max_durations
 
         logger.setLevel(logging.getLevelName(loglevel))
         
@@ -319,12 +322,14 @@ class AWSAuthorization(ecpshib.ECPShib):
             role_name = role_arn.split('/')[-1]
             account_number = principal_arn.split(':')[4]
             profile_name = "{0}-{1}".format(account_number,role_name)
+            max_duration = self.max_durations.get(f"{account_number}-{role_name}", 3600) # Default to 3600 sec if not specified
             role_list.append(AWSRole(
                 role_name=role_name,
                 role_arn=role_arn,
                 principal_arn=principal_arn,
                 profile_name=profile_name,
-                account_number=account_number
+                account_number=account_number,
+                max_duration=max_duration
             ))
         if role_list:
             accounts = set([x.account_number for x in role_list])
@@ -428,6 +433,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                     config.set(aws_role.profile_name, 'account_number', aws_role.account_number)
                     config.set(aws_role.profile_name, 'account_alias', account_alias)
                     config.set(aws_role.profile_name, 'role_name', aws_role.role_name)
+                    config.set(aws_role.profile_name, 'max_duration', aws_role.max_duration)
                     has_content = True
 
         if has_content:
@@ -498,16 +504,20 @@ class AWSAuthorization(ecpshib.ECPShib):
                                     aws_role.get_duration(region=self.region)
                             except:
                                 logger.debug("Failed to get duration")
-                            if not duration and aws_role.max_duration != 3600:
-                                try:
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
-                                except:
-                                    self.negotiate()
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
-                                try:
-                                    aws_role.get_session(region=self.region)
-                                except:
-                                    raise ValueError
+                            if not duration:
+                                prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
+                                # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
+                                if prior_max_duration is not None and int(aws_role.max_duration) != int(prior_max_duration):
+                                    logger.debug("Queried max duration {0} is different from stored max duration {1} for {2}, attempting to get new token with updated max duration".format(aws_role.max_duration, prior_max_duration, aws_role.profile_name))
+                                    try:
+                                        aws_role.get_token(assertion=self.assertion,region=self.region)
+                                    except:
+                                        self.negotiate()
+                                        aws_role.get_token(assertion=self.assertion,region=self.region)
+                                    try:
+                                        aws_role.get_session(region=self.region)
+                                    except:
+                                        raise ValueError
                         else:
                             logger.warning("No sts role token was created so no session can be established")
                     if not account.account_alias:

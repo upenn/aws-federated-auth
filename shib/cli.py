@@ -61,6 +61,7 @@ import base64
 import getpass
 import logging
 import requests
+import time
 
 import sys
 import argparse
@@ -150,6 +151,12 @@ def main():
         ' otherwise, "ERROR"',
         type=str.lower,
         choices=["critical", "warn", "error", "info", "debug"],
+    )
+    parser.add_argument(
+        "--timer",
+        help="Report the duration that the script takes to run, starting from when the password"
+        " is entered.",
+        action="store_true"
     )
     parser.add_argument('--duration',
         help='Duration before timeout of session in seconds.'
@@ -341,7 +348,26 @@ def main():
     if password is None:
         print("You must provide a password in order to sign in")
     else:
+        # Start timer after password is entered.
+        if args.timer:
+            start_time = time.time()
+
         print("Processing authorization, this takes longer the more access you have selected.")
+        # Read in any existing credentials to allow filtering and speed up auth
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(awsconfigfile)
+        
+        # Create max duration dictionary for use in getting tokens during auth
+        max_durations = {
+            f"{config.get(section, 'account_number')}-{config.get(section, 'role_name')}": int(config.get(section, 'max_duration'))
+            for section in config.sections()
+            if config.has_option(section, 'max_duration')
+                and config.has_option(section, 'account_number')
+                and config.has_option(section, 'role_name')
+                and config.has_option(section, 'role_name')
+        }
+
+        # Create an instance of the ECPShib class to handle authentication and token retrieval
         AWSCreds = awsshib.AWSAuthorization(
             username=username,
             password=password,
@@ -354,14 +380,12 @@ def main():
             cookiejar_filename=cookiejar_filename,
             loglevel=log_level,
             sort_display=args.sort_display,
-            split_display=args.split_display)
+            split_display=args.split_display,
+            max_durations=max_durations)
 
         # Process filters for authorization
         auth_args = []
         role_name_arg = {'role_name': args.rolename} if args.rolename else {}
-        if args.profilename or args.accountalias:
-            config = configparser.ConfigParser(interpolation=None)
-            config.read(awsconfigfile)
 
         if args.profilename: # Filter by specific profile
             for profilename in args.profilename:
@@ -416,6 +440,13 @@ def main():
                         "approve your Duo request")
                 if password_stored and keyring is not None:
                     keyring.delete_password("aws-federated-auth", "password")
+        
+    # Report time taken for script to run if --timer option selected
+    if args.timer:
+        end_time = time.time()
+        duration = end_time - start_time
+        min, sec = divmod(duration, 60)
+        print(f"Total time to authenticate: {int(min)}m {sec:.2f}s.")
 
 
 if __name__ == "__main__":
