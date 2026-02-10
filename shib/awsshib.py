@@ -41,10 +41,10 @@ class AWSRole(object):
         role_name,
         profile_name,
         account_number,
+        sts_session,
         token=None,
         boto_session=None,
         iam_session=None,
-        sts_session=None,
         max_duration=3600
     ):
         self.principal_arn = principal_arn
@@ -71,36 +71,10 @@ class AWSRole(object):
             and self.account_number == other.account_number
         )
 
-    def get_botocore_session(self):
-        logger.debug(f"Creating a new botocore session that will be used to create the higher level session object")
-        botocore_session = botocore.session.get_session()
-        available_profiles = botocore_session.available_profiles
-        is_profile_available = False
-        first_available_profile = None
-        if self.profile_name is not None:
-            logger.debug(f"Profile is set to {self.profile_name} - checking to make sure that profile is actually "
-                         f"available")
-            for available_profile in available_profiles:
-                if first_available_profile is None:
-                    first_available_profile = available_profile
-                if available_profile == self.profile_name:
-                    is_profile_available = True
-
-            if not is_profile_available:
-                logger.info(f"AWS profile {self.profile_name} provided via the AWS_PROFILE environment variable is not "
-                            f"available - switching to use {first_available_profile} as the profile for this session")
-                botocore_session.set_config_variable("profile", first_available_profile)
-
-        return botocore_session
-
     def get_token(self, assertion, region):
         """ get STS token from AWS for role """
         try:
             logger.info(f"Starting STS session with profile {self.profile_name}")
-            botocore_session = self.get_botocore_session()
-
-            session = boto3.session.Session(botocore_session=botocore_session, region_name=region)
-            self.sts_session = session.client('sts', region_name=region)
             self.token = self.sts_session.assume_role_with_saml(
                 DurationSeconds=self.max_duration,
                 RoleArn=self.role_arn,
@@ -116,12 +90,10 @@ class AWSRole(object):
         """ establish an AWS session """
         if self.token:
             try:
-                botocore_session = self.get_botocore_session()
                 self.boto_session = boto3.Session(
                     aws_access_key_id=self.token['Credentials']['AccessKeyId'],
                     aws_secret_access_key=self.token['Credentials']['SecretAccessKey'],
                     aws_session_token=self.token['Credentials']['SessionToken'],
-                    botocore_session=botocore_session,
                     region_name=region
                 )
             except:
@@ -134,7 +106,7 @@ class AWSRole(object):
         """ establish an IAM session """
         if not self.boto_session:
             self.get_session(region)
-        else:
+        if not self.iam_session:
             try:  
                 self.iam_session = self.boto_session.client(
                         'iam', 
@@ -316,6 +288,11 @@ class AWSAuthorization(ecpshib.ECPShib):
         role_regex = re.compile('.*(arn:aws:iam::([0-9]+):role/([^,:]+)).*<')
         saml_regex = re.compile('.*(arn:aws:iam::([0-9]+):saml-provider/([^,:]+)).*')
         
+        # Create single STS client to be shared across all roles to speed up token retrieval
+        botocore_session = botocore.session.Session(profile=None)
+        session = boto3.session.Session(botocore_session=botocore_session, region_name=self.region)
+        sts_session = session.client('sts', region_name=self.region)
+
         for aws_role in assertion_roles:
             role_arn = role_regex.match(aws_role).group(1)
             principal_arn = saml_regex.match(aws_role).group(1)
@@ -329,6 +306,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                 principal_arn=principal_arn,
                 profile_name=profile_name,
                 account_number=account_number,
+                sts_session=sts_session,
                 max_duration=max_duration
             ))
         if role_list:
