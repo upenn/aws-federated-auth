@@ -479,13 +479,13 @@ class AWSAuthorization(ecpshib.ECPShib):
                         except:
                             self.negotiate()
                             aws_role.get_token(assertion=self.assertion, region=self.region)
-                        if aws_role.token:
-                            try:
-                                aws_role.get_session(region=self.region)
-                            except:
-                                logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
-                                #raise ValueError
-                            if not self.skip_max_duration_check:
+                        if not self.skip_max_duration_check:
+                            if aws_role.token:
+                                try:
+                                    aws_role.get_session(region=self.region)
+                                except:
+                                    logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
+                                    #raise ValueError
                                 try:
                                     if not duration:
                                         aws_role.get_duration(region=self.region)
