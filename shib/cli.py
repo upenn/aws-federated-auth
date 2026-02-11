@@ -78,6 +78,18 @@ formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"
 log_channel.setFormatter(formatter)
 logger.addHandler(log_channel)
 
+def bounded_int(min_value, max_value):
+    def _bounded_int(value):
+        try:
+            int_value = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{value} is not a valid integer") from exc
+        if int_value < min_value or int_value > max_value:
+            raise argparse.ArgumentTypeError(
+                f"{int_value} is out of range [{min_value}, {max_value}]"
+            )
+        return int_value
+    return _bounded_int
 
 def main():
     """Main: Set up variables argparse, failing back to environment variables.
@@ -158,10 +170,14 @@ def main():
         " is entered.",
         action="store_true"
     )
-    parser.add_argument('--duration',
-        help='Duration before timeout of session in seconds.'
-        ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
-        'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
+    parser.add_argument('--max-duration-limit',
+        help='Limit the maximum duration before timeout of session in seconds.'
+        ' Minimum is 900 seconds (15 minutes) and maximum is 43200 seconds (12 hours).'
+        ' If this limit is higher than the max duration allowed by the role, the max' 
+        ' duration of the role will take precedence.',
+        type=bounded_int(900, 43200),
+        default=43200
+    )
     parser.add_argument('--skip-max-duration-check',
         help='Skip the check to see if the max duration for a role has changed since from the max duration'
         ' stored in the credentials file. Skipping the check will speed up the authentication process'
@@ -244,12 +260,6 @@ def main():
         logger.debug("Selected to filter by profile name with the"
         " following value: {0}".format(args.profilename))
     ###########################################################################
-
-    if args.duration:
-        session_duration = int(args.duration)
-        if 60*60*12 < session_duration <= 0:
-            raise argparse.ArgumentTypeError("%s is an invalid number"
-        " of seconds" % args.duration)
 
     if args.sort_display:
         logger.debug("Sort the display output by the following columns: {0}".format(args.sort_display))
@@ -392,7 +402,9 @@ def main():
             sort_display=args.sort_display,
             split_display=args.split_display,
             max_durations=max_durations,
-            skip_max_duration_check=args.skip_max_duration_check)
+            skip_max_duration_check=args.skip_max_duration_check,
+            max_duration_limit=args.max_duration_limit
+        )
 
         # Process filters for authorization
         auth_args = []
