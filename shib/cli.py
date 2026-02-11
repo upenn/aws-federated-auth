@@ -162,6 +162,12 @@ def main():
         help='Duration before timeout of session in seconds.'
         ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
         'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
+    parser.add_argument('--skip-max-duration-check',
+        help='Skip the check to see if the max duration for a role has changed since from the max duration'
+        ' stored in the credentials file. Skipping the check will speed up the authentication process'
+        ' but may result in session durations that are not maximized.',
+        action='store_true'
+    )
     parser.add_argument('--storepass',
         help='Store the password to the system keyring service to allow for automatic retrieval'
         ' on following requests. If set, you will be prompted for a password that will then'
@@ -385,7 +391,8 @@ def main():
             loglevel=log_level,
             sort_display=args.sort_display,
             split_display=args.split_display,
-            max_durations=max_durations)
+            max_durations=max_durations,
+            skip_max_duration_check=args.skip_max_duration_check)
 
         # Process filters for authorization
         auth_args = []

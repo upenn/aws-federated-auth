@@ -216,6 +216,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         sort_display=None,
         split_display=None,
         max_durations={},
+        skip_max_duration_check=False,
         loglevel="ERROR"
     ):
         ecpshib.ECPShib.__init__(
@@ -242,6 +243,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.split_display = split_display
         self.longest_role_name = 12
         self.max_durations = max_durations
+        self.skip_max_duration_check = skip_max_duration_check
 
         logger.setLevel(logging.getLevelName(loglevel))
         
@@ -483,26 +485,27 @@ class AWSAuthorization(ecpshib.ECPShib):
                             except:
                                 logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
                                 #raise ValueError
-                            try:
+                            if not self.skip_max_duration_check:
+                                try:
+                                    if not duration:
+                                        aws_role.get_duration(region=self.region)
+                                except:
+                                    logger.debug("Failed to get duration")
                                 if not duration:
-                                    aws_role.get_duration(region=self.region)
-                            except:
-                                logger.debug("Failed to get duration")
-                            if not duration:
-                                prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
-                                # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
-                                if (int(aws_role.max_duration) > 3600
-                                        and (prior_max_duration is None or int(aws_role.max_duration) < int(prior_max_duration))):
-                                    logger.debug("Queried max duration {0} is different from stored max duration {1} for {2}, attempting to get new token with updated max duration".format(aws_role.max_duration, prior_max_duration, aws_role.profile_name))
-                                    try:
-                                        aws_role.get_token(assertion=self.assertion,region=self.region)
-                                    except:
-                                        self.negotiate()
-                                        aws_role.get_token(assertion=self.assertion,region=self.region)
-                                    try:
-                                        aws_role.get_session(region=self.region)
-                                    except:
-                                        raise ValueError
+                                    prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
+                                    # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
+                                    if (int(aws_role.max_duration) > 3600
+                                            and (prior_max_duration is None or int(aws_role.max_duration) < int(prior_max_duration))):
+                                        logger.debug("Queried max duration {0} is different from stored max duration {1} for {2}, attempting to get new token with updated max duration".format(aws_role.max_duration, prior_max_duration, aws_role.profile_name))
+                                        try:
+                                            aws_role.get_token(assertion=self.assertion,region=self.region)
+                                        except:
+                                            self.negotiate()
+                                            aws_role.get_token(assertion=self.assertion,region=self.region)
+                                        try:
+                                            aws_role.get_session(region=self.region)
+                                        except:
+                                            raise ValueError
                         else:
                             logger.warning("No sts role token was created so no session can be established")
                     if not account.account_alias:
