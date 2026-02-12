@@ -27,12 +27,6 @@ from urllib.parse import urlparse, urlunparse
 import datetime
 
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
-log_channel = logging.StreamHandler()
-formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
-log_channel.setFormatter(formatter)
-logger.addHandler(log_channel)
 
 class ECPShib(object):
     """ Session handler for SAML ECP implementation  
@@ -49,7 +43,7 @@ class ECPShib(object):
         cookiejar_filename=None, 
         tossoldcookies=True, 
         sslverification=True,
-        loglevel=None
+        exceptiontrace=False
     ):
         """ Instantiates an instance of PennShib. """
         self.data = None
@@ -70,6 +64,7 @@ class ECPShib(object):
         self.session = None
         self.ecp_response = None
         self.assertion = None
+        self.exceptiontrace = exceptiontrace
         factors = ['auto', 'push', 'passcode', 'phone']
         if duo_factor:
             if duo_factor in factors:
@@ -79,8 +74,6 @@ class ECPShib(object):
                 self.duo_factor = "auto"
         else:
             self.duo_factor = "auto"
-        if loglevel:
-            logger.setLevel(logging.getLevelName(loglevel.upper()))
 
     def save_cookies(self):
         """ Save requests module's cookiejar as jarfilename """

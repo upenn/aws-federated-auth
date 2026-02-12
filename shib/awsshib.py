@@ -26,12 +26,6 @@ import configparser
 from base64 import b64encode
 
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
-log_channel = logging.StreamHandler()
-formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
-log_channel.setFormatter(formatter)
-logger.addHandler(log_channel)
 
 class AWSRole(object):
     """ Instantiates a role object """
@@ -47,7 +41,8 @@ class AWSRole(object):
         boto_session=None,
         iam_session=None,
         max_duration=3600, # 1 hour default
-        max_duration_limit=43200 # 12 hours, max duration limit for AWS sessions
+        max_duration_limit=43200, # 12 hours, max duration limit for AWS sessions
+        exceptiontrace=False
     ):
         self.principal_arn = principal_arn
         self.role_arn = role_arn
@@ -60,6 +55,7 @@ class AWSRole(object):
         self.sts_session = sts_session
         self.max_duration = max_duration
         self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
     def __eq__(self, other): 
         """ set equality comparison """
@@ -88,11 +84,11 @@ class AWSRole(object):
             # Catch given duration too long error and attempt a shorter duration
             if (e.response["Error"]["Code"] == "ValidationError"
                     and "DurationSeconds exceeds the MaxSessionDuration" in e.response["Error"]["Message"]):
-                logger.exception("Requested duration of {0} seconds exceeds the maximum session duration for this role. Attempting default max duration of 3600.".format(self.max_duration))
+                logger.error("Requested duration of {0} seconds exceeds the maximum session duration for this role. Attempting default max duration of 3600.".format(self.max_duration), exc_info=self.exceptiontrace)
                 self.max_duration = 3600
                 self.get_token(assertion, region)
             else:
-                logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
+                logger.error("failed to establish STS connection for profile {0}".format(self.profile_name), exc_info=self.exceptiontrace)
     
     def get_session(self, region):
         """ establish an AWS session """
@@ -105,7 +101,7 @@ class AWSRole(object):
                     region_name=region
                 )
             except:
-                logger.exception(f"Failed to create boto session")
+                logger.error(f"Failed to create boto session", exc_info=self.exceptiontrace)
                 raise ValueError
         else:
             logger.warning("no token associated with role with which to generate session.")
@@ -220,7 +216,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         max_durations={},
         skip_max_duration_check=False,
         max_duration_limit=43200, # 12 hours, max duration limit for AWS sessions
-        loglevel="ERROR"
+        exceptiontrace=False
     ):
         ecpshib.ECPShib.__init__(
             self,
@@ -232,7 +228,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             cookiejar_filename,
             tossoldcookies,
             sslverification,
-            loglevel
+            exceptiontrace
         )
         self.assertion = None
         self.session = None
@@ -248,9 +244,8 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.max_durations = max_durations
         self.skip_max_duration_check = skip_max_duration_check
         self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
-        logger.setLevel(logging.getLevelName(loglevel))
-        
     def get_account(self, account_number):
         """ query account numbers """
         logger.debug("Checking for account_number: {0}".format(account_number))
@@ -320,7 +315,8 @@ class AWSAuthorization(ecpshib.ECPShib):
                 account_number=account_number,
                 sts_session=sts_session,
                 max_duration=max_duration,
-                max_duration_limit=self.max_duration_limit
+                max_duration_limit=self.max_duration_limit,
+                exceptiontrace=self.exceptiontrace
             ))
         if role_list:
             accounts = set([x.account_number for x in role_list])
@@ -492,7 +488,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                                 try:
                                     aws_role.get_session(region=self.region)
                                 except:
-                                    logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
+                                    logger.error("Failed to establish a session for {0}".format(aws_role.profile_name), exc_info=self.exceptiontrace)
                                 try:
                                     aws_role.get_duration(region=self.region)
                                 except:

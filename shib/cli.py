@@ -70,9 +70,8 @@ from os.path import expanduser
 from shib import awsshib
 from shib import shellcompletion
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
 log_channel = logging.StreamHandler()
 formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
 log_channel.setFormatter(formatter)
@@ -157,6 +156,8 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
+    
+    ########################## DEBUGGING OPTIONS ##########################
     parser.add_argument(
         "--logging",
         help="Set log level. IF LOGLEVEL environment value set, use that."
@@ -165,11 +166,18 @@ def main():
         choices=["critical", "warn", "error", "info", "debug"],
     )
     parser.add_argument(
+        "--exceptiontrace",
+        help='Shows exception tracebacks in the log output. Defaults to False.',
+        action='store_true'
+    )
+    parser.add_argument(
         "--timer",
         help="Report the duration that the script takes to run, starting from when the password"
         " is entered.",
         action="store_true"
     )
+    #######################################################################
+
     parser.add_argument('--max-duration-limit',
         help='Limit the maximum duration before timeout of session in seconds.'
         ' Minimum is 900 seconds (15 minutes) and maximum is 43200 seconds (12 hours).'
@@ -232,7 +240,7 @@ def main():
     # Shell completion script installation
     if args.install_completion:
         logger.info(f"Installing shell completion script for {args.install_completion} shell.")
-        shellcompletion_instance = shellcompletion.ShellCompletion(loglevel=log_level)
+        shellcompletion_instance = shellcompletion.ShellCompletion(exceptiontrace=args.exceptiontrace)
         shellcompletion_instance.install_completion(
             shell_type=args.install_completion,
             completion_location=args.completion_location
@@ -384,7 +392,7 @@ def main():
                     and config.has_option(section, 'role_name')
             }
         except:
-            logger.exception("Faiiled to parse max durations from aws config file, max duration will not be used to optimize token retrieval. Clear credentials file to fix.")
+            logger.error("Faiiled to parse max durations from aws config file, max duration will not be used to optimize token retrieval. Clear credentials file to fix.", exc_info=args.exceptiontrace)
             max_durations = {}
 
         # Create an instance of the ECPShib class to handle authentication and token retrieval
@@ -398,12 +406,12 @@ def main():
             output_format=outputformat,
             config_file=awsconfigfile,
             cookiejar_filename=cookiejar_filename,
-            loglevel=log_level,
             sort_display=args.sort_display,
             split_display=args.split_display,
             max_durations=max_durations,
             skip_max_duration_check=args.skip_max_duration_check,
-            max_duration_limit=args.max_duration_limit
+            max_duration_limit=args.max_duration_limit,
+            exceptiontrace=args.exceptiontrace
         )
 
         # Process filters for authorization
