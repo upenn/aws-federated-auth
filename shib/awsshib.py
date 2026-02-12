@@ -429,7 +429,7 @@ class AWSAuthorization(ecpshib.ECPShib):
 
         if has_content:
             # Write the updated config file
-            with open(file_name, 'w+') as configfile:
+            with open(os.open(file_name, os.O_CREAT|os.O_RDWR, 0o600), "w+") as configfile:
                 config.write(configfile)
         else:
             logger.info(f"No tokens were retrieved")
