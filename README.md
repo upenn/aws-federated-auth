@@ -77,18 +77,20 @@ aws-federated-auth --account 123456789
 
 ```
 
-Display and generate profile for specific AWS account and specifiy session duration
+Display and generate profile for specific AWS account and specifiy the maximum allowable duration in seconds for the temporary credentials
 
 ```console
 
-aws-federated-auth --duration 1200
+aws-federated-auth --max-duration-limit 1200
 
 ```
 
 ### Authors/Credits
 
 jdenk@upenn.edu
+
 rchu@upenn.edu
+
 hughmac@upenn.edu
 
 Based on components of:
