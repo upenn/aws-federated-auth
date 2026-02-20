@@ -16,11 +16,32 @@ https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp.html
 
 ## Installation
 
+(Work in progress. `pip install` is not yet ready.)
+
 ```console
 
 pip install aws-federated-auth 
 
 ```
+
+## Compile Binary
+
+Clone the repo. In your virtual environment, install the following requrements:
+
+```
+requests
+boto3
+keyring
+pyinstaller
+```
+
+Then, compile using `pyinstaller`.
+
+```console
+pyinstaller aws-federated-auth.spec
+```
+
+The binary should be located in the `dist` directory.
 
 ## Example
 
@@ -56,27 +77,28 @@ aws-federated-auth --account 123456789
 
 ```
 
-Display and generate profile for specific AWS account and specifiy session duration
+Display and generate profile for specific AWS account and specifiy the maximum allowable duration in seconds for the temporary credentials
 
 ```console
 
-aws-federated-auth --duration 1200
+aws-federated-auth --max-duration-limit 1200
 
 ```
 
-## Create binary version
-Included is a sample spec file for generating a single file distribution.
-If your use case isn't one that works with pip installs you can repackage to meet your needs.
+Install shell completion script for the command line (OMZ version and ZSH version still a work in progress)
 
 ```console
 
-pyinstaller aws-federated-auth.spec
-
+aws-federated-auth --install-completion bash
 ```
 
 ### Authors/Credits
 
 jdenk@upenn.edu
+
+rchu@upenn.edu
+
+hughmac@upenn.edu
 
 Based on components of:
     get-aws-creds creds written by batzel@upenn.edu January 10, 2018
