@@ -4,23 +4,16 @@ import logging
 import subprocess
 
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "INFO"))
-logger.propagate = False
-log_channel = logging.StreamHandler()
-formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
-log_channel.setFormatter(formatter)
-logger.addHandler(log_channel)
 
 class ShellCompletion:
     """Shell completion for AWS profile export command."""
 
     def __init__(
         self,
-        loglevel=None
+        exceptiontrace=False
     ):
         """Initialize the ShellCompletion instance."""
-        if loglevel:
-            logger.setLevel(logging.getLevelName(loglevel.upper()))
+        self.exceptiontrace = exceptiontrace
 
     ########## Shell completion scripts ##########
     _omz_completion_script = """#compdef export
@@ -107,7 +100,10 @@ _aws_federated_auth_complete() {
         "--region"
         "--cookiejar"
         "--logging"
-        "--duration"
+        "--exceptiontrace"
+        "--timer"
+        "--max-duration-limit"
+        "--skip-max-duration-check"
         "--storepass"
         "--user"
         "--sort_display"
@@ -359,7 +355,8 @@ complete -F _aws_federated_auth_complete aws-federated-auth
             if '_aws_profile_complete()' in content:
                 logger.error(f"Bash completion script _aws_profile_complete() already exists in {completion_location}.\n"
                               "No changes made.\n"
-                              "If you want to update it, please remove the existing script first.")
+                              "If you want to update it, please remove the existing script first.",
+                              exc_info=self.exceptiontrace)
                 return
             else: # Add script to end of existing file
                 with open(os.path.expanduser(completion_location), 'a') as f:
@@ -453,5 +450,5 @@ complete -F _aws_federated_auth_complete aws-federated-auth
             )
             return result.stdout.strip().split('\n')
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error getting zsh fpath: {e}")
+            logger.error(f"Error getting zsh fpath.", exc_info=self.exceptiontrace)
             return []

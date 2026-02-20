@@ -15,6 +15,7 @@ __version__ = "1.0.0"
 import os
 
 import botocore.session
+from botocore.exceptions import ClientError
 
 from shib import ecpshib
 import logging
@@ -25,12 +26,6 @@ import configparser
 from base64 import b64encode
 
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
-log_channel = logging.StreamHandler()
-formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
-log_channel.setFormatter(formatter)
-logger.addHandler(log_channel)
 
 class AWSRole(object):
     """ Instantiates a role object """
@@ -41,11 +36,13 @@ class AWSRole(object):
         role_name,
         profile_name,
         account_number,
+        sts_session,
         token=None,
         boto_session=None,
         iam_session=None,
-        sts_session=None,
-        max_duration=3600
+        max_duration=3600, # 1 hour default
+        max_duration_limit=43200, # 12 hours, max duration limit for AWS sessions
+        exceptiontrace=False
     ):
         self.principal_arn = principal_arn
         self.role_arn = role_arn
@@ -57,6 +54,8 @@ class AWSRole(object):
         self.iam_session = iam_session
         self.sts_session = sts_session
         self.max_duration = max_duration
+        self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
     def __eq__(self, other): 
         """ set equality comparison """
@@ -71,60 +70,38 @@ class AWSRole(object):
             and self.account_number == other.account_number
         )
 
-    def get_botocore_session(self):
-        logger.debug(f"Creating a new botocore session that will be used to create the higher level session object")
-        botocore_session = botocore.session.get_session()
-        available_profiles = botocore_session.available_profiles
-        is_profile_available = False
-        first_available_profile = None
-        if self.profile_name is not None:
-            logger.debug(f"Profile is set to {self.profile_name} - checking to make sure that profile is actually "
-                         f"available")
-            for available_profile in available_profiles:
-                if first_available_profile is None:
-                    first_available_profile = available_profile
-                if available_profile == self.profile_name:
-                    is_profile_available = True
-
-            if not is_profile_available:
-                logger.info(f"AWS profile {self.profile_name} provided via the AWS_PROFILE environment variable is not "
-                            f"available - switching to use {first_available_profile} as the profile for this session")
-                botocore_session.set_config_variable("profile", first_available_profile)
-
-        return botocore_session
-
     def get_token(self, assertion, region):
         """ get STS token from AWS for role """
         try:
             logger.info(f"Starting STS session with profile {self.profile_name}")
-            botocore_session = self.get_botocore_session()
-
-            session = boto3.session.Session(botocore_session=botocore_session, region_name=region)
-            self.sts_session = session.client('sts', region_name=region)
             self.token = self.sts_session.assume_role_with_saml(
-                DurationSeconds=self.max_duration,
+                DurationSeconds=self.max_duration if self.max_duration < self.max_duration_limit else self.max_duration_limit,
                 RoleArn=self.role_arn,
                 PrincipalArn=self.principal_arn,
                 SAMLAssertion=assertion
             )   
-        except:
-            logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
-            #raise ValueError
+        except ClientError as e:
+            # Catch given duration too long error and attempt a shorter duration
+            if (e.response["Error"]["Code"] == "ValidationError"
+                    and "DurationSeconds exceeds the MaxSessionDuration" in e.response["Error"]["Message"]):
+                logger.error("Requested duration of {0} seconds exceeds the maximum session duration for this role. Attempting default max duration of 3600.".format(self.max_duration), exc_info=self.exceptiontrace)
+                self.max_duration = 3600
+                self.get_token(assertion, region)
+            else:
+                logger.error("failed to establish STS connection for profile {0}".format(self.profile_name), exc_info=self.exceptiontrace)
     
     def get_session(self, region):
         """ establish an AWS session """
         if self.token:
             try:
-                botocore_session = self.get_botocore_session()
                 self.boto_session = boto3.Session(
                     aws_access_key_id=self.token['Credentials']['AccessKeyId'],
                     aws_secret_access_key=self.token['Credentials']['SecretAccessKey'],
                     aws_session_token=self.token['Credentials']['SessionToken'],
-                    botocore_session=botocore_session,
                     region_name=region
                 )
             except:
-                logger.exception(f"Failed to create boto session")
+                logger.error(f"Failed to create boto session", exc_info=self.exceptiontrace)
                 raise ValueError
         else:
             logger.warning("no token associated with role with which to generate session.")
@@ -133,7 +110,7 @@ class AWSRole(object):
         """ establish an IAM session """
         if not self.boto_session:
             self.get_session(region)
-        else:
+        if not self.iam_session:
             try:  
                 self.iam_session = self.boto_session.client(
                         'iam', 
@@ -236,7 +213,10 @@ class AWSAuthorization(ecpshib.ECPShib):
         writeheader=False,
         sort_display=None,
         split_display=None,
-        loglevel="ERROR"
+        max_durations={},
+        skip_max_duration_check=False,
+        max_duration_limit=43200, # 12 hours, max duration limit for AWS sessions
+        exceptiontrace=False
     ):
         ecpshib.ECPShib.__init__(
             self,
@@ -248,7 +228,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             cookiejar_filename,
             tossoldcookies,
             sslverification,
-            loglevel
+            exceptiontrace
         )
         self.assertion = None
         self.session = None
@@ -261,9 +241,11 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.sort_display = sort_display
         self.split_display = split_display
         self.longest_role_name = 12
+        self.max_durations = max_durations
+        self.skip_max_duration_check = skip_max_duration_check
+        self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
-        logger.setLevel(logging.getLevelName(loglevel))
-        
     def get_account(self, account_number):
         """ query account numbers """
         logger.debug("Checking for account_number: {0}".format(account_number))
@@ -313,18 +295,28 @@ class AWSAuthorization(ecpshib.ECPShib):
         role_regex = re.compile('.*(arn:aws:iam::([0-9]+):role/([^,:]+)).*<')
         saml_regex = re.compile('.*(arn:aws:iam::([0-9]+):saml-provider/([^,:]+)).*')
         
+        # Create single STS client to be shared across all roles to speed up token retrieval
+        botocore_session = botocore.session.Session(profile=None)
+        session = boto3.session.Session(botocore_session=botocore_session, region_name=self.region)
+        sts_session = session.client('sts', region_name=self.region)
+
         for aws_role in assertion_roles:
             role_arn = role_regex.match(aws_role).group(1)
             principal_arn = saml_regex.match(aws_role).group(1)
             role_name = role_arn.split('/')[-1]
             account_number = principal_arn.split(':')[4]
             profile_name = "{0}-{1}".format(account_number,role_name)
+            max_duration = self.max_durations.get(f"{account_number}-{role_name}", 3600) # Default to 3600 sec if not specified
             role_list.append(AWSRole(
                 role_name=role_name,
                 role_arn=role_arn,
                 principal_arn=principal_arn,
                 profile_name=profile_name,
-                account_number=account_number
+                account_number=account_number,
+                sts_session=sts_session,
+                max_duration=max_duration,
+                max_duration_limit=self.max_duration_limit,
+                exceptiontrace=self.exceptiontrace
             ))
         if role_list:
             accounts = set([x.account_number for x in role_list])
@@ -397,11 +389,17 @@ class AWSAuthorization(ecpshib.ECPShib):
             print(
                 template.format(
                     role['profile_name'],
-                    role['max_duration'],
+                    str(role['max_duration']) + ('*' if int(role['max_duration']) > self.max_duration_limit else '' ),
                     role['account_number'],
                     role['role_name']
                 )
             )
+        
+        # Show max duration limit note if needed
+        if self.max_duration_limit < 43200:
+            if any(int(role['max_duration']) > self.max_duration_limit for role in roles):
+                print("-" * (template_width + self.longest_role_name))
+                print(f"* = Max duration for this role limited to {self.max_duration_limit} seconds.")
 
     def write_profile(self):
         """ Output function for profile writing """
@@ -428,11 +426,12 @@ class AWSAuthorization(ecpshib.ECPShib):
                     config.set(aws_role.profile_name, 'account_number', aws_role.account_number)
                     config.set(aws_role.profile_name, 'account_alias', account_alias)
                     config.set(aws_role.profile_name, 'role_name', aws_role.role_name)
+                    config.set(aws_role.profile_name, 'max_duration', aws_role.max_duration)
                     has_content = True
 
         if has_content:
             # Write the updated config file
-            with open(file_name, 'w+') as configfile:
+            with open(os.open(file_name, os.O_CREAT|os.O_RDWR, 0o600), "w+") as configfile:
                 config.write(configfile)
         else:
             logger.info(f"No tokens were retrieved")
@@ -442,7 +441,6 @@ class AWSAuthorization(ecpshib.ECPShib):
         role_name=None,
         account_number=None,
         access_list=False,
-        duration=None,
         silent=False
     ):
         """ Function to navigate authorization """
@@ -481,33 +479,36 @@ class AWSAuthorization(ecpshib.ECPShib):
                     for aws_role in account.aws_roles:
                         logger.debug("{0:4}".format(aws_role.profile_name))
                         try:
-                            if duration: 
-                                aws_role.max_duration = duration
                             aws_role.get_token(assertion=self.assertion, region=self.region)
                         except:
                             self.negotiate()
                             aws_role.get_token(assertion=self.assertion, region=self.region)
-                        if aws_role.token:
-                            try:
-                                aws_role.get_session(region=self.region)
-                            except:
-                                logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
-                                #raise ValueError
-                            try:
-                                if not duration:
-                                    aws_role.get_duration(region=self.region)
-                            except:
-                                logger.debug("Failed to get duration")
-                            if not duration and aws_role.max_duration != 3600:
-                                try:
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
-                                except:
-                                    self.negotiate()
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
+                        if not self.skip_max_duration_check:
+                            if aws_role.token:
                                 try:
                                     aws_role.get_session(region=self.region)
                                 except:
-                                    raise ValueError
+                                    logger.error("Failed to establish a session for {0}".format(aws_role.profile_name), exc_info=self.exceptiontrace)
+                                try:
+                                    aws_role.get_duration(region=self.region)
+                                except:
+                                    logger.debug("Failed to get duration")
+                                prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
+                                # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
+                                if (int(aws_role.max_duration) > 3600 and aws_role.max_duration_limit > 3600
+                                        and (prior_max_duration is None 
+                                             or (int(aws_role.max_duration) < int(prior_max_duration)
+                                                 and int(prior_max_duration) < aws_role.max_duration_limit))):
+                                    logger.debug("Queried max duration {0} is different from stored max duration {1} for {2}, attempting to get new token with updated max duration".format(aws_role.max_duration, prior_max_duration, aws_role.profile_name))
+                                    try:
+                                        aws_role.get_token(assertion=self.assertion,region=self.region)
+                                    except:
+                                        self.negotiate()
+                                        aws_role.get_token(assertion=self.assertion,region=self.region)
+                                    try:
+                                        aws_role.get_session(region=self.region)
+                                    except:
+                                        raise ValueError
                         else:
                             logger.warning("No sts role token was created so no session can be established")
                     if not account.account_alias:

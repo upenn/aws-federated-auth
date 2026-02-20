@@ -57,26 +57,33 @@ variable.
 
 #Requirements for Shib Processing
 import os
-import base64
 import getpass
 import logging
-import requests
+import time
 
-import sys
 import argparse
 import configparser
 from os.path import expanduser
-from shib import awsshib
-from shib import shellcompletion
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
 log_channel = logging.StreamHandler()
 formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
 log_channel.setFormatter(formatter)
 logger.addHandler(log_channel)
 
+def bounded_int(min_value, max_value):
+    def _bounded_int(value):
+        try:
+            int_value = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{value} is not a valid integer") from exc
+        if int_value < min_value or int_value > max_value:
+            raise argparse.ArgumentTypeError(
+                f"{int_value} is out of range [{min_value}, {max_value}]"
+            )
+        return int_value
+    return _bounded_int
 
 def main():
     """Main: Set up variables argparse, failing back to environment variables.
@@ -144,6 +151,8 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
+    
+    ########################## DEBUGGING OPTIONS ##########################
     parser.add_argument(
         "--logging",
         help="Set log level. IF LOGLEVEL environment value set, use that."
@@ -151,10 +160,33 @@ def main():
         type=str.lower,
         choices=["critical", "warn", "error", "info", "debug"],
     )
-    parser.add_argument('--duration',
-        help='Duration before timeout of session in seconds.'
-        ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
-        'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
+    parser.add_argument(
+        "--exceptiontrace",
+        help='Shows exception tracebacks in the log output. Defaults to False.',
+        action='store_true'
+    )
+    parser.add_argument(
+        "--timer",
+        help="Report the duration that the script takes to run, starting from when the password"
+        " is entered.",
+        action="store_true"
+    )
+    #######################################################################
+
+    parser.add_argument('--max-duration-limit',
+        help='Limit the maximum duration before timeout of session in seconds.'
+        ' Minimum is 900 seconds (15 minutes) and maximum is 43200 seconds (12 hours).'
+        ' If this limit is higher than the max duration allowed by the role, the max' 
+        ' duration of the role will take precedence.',
+        type=bounded_int(900, 43200),
+        default=43200
+    )
+    parser.add_argument('--skip-max-duration-check',
+        help='Skip the check to see if the max duration for a role has changed since from the max duration'
+        ' stored in the credentials file. Skipping the check will speed up the authentication process'
+        ' but may result in session durations that are not maximized.',
+        action='store_true'
+    )
     parser.add_argument('--storepass',
         help='Store the password to the system keyring service to allow for automatic retrieval'
         ' on following requests. If set, you will be prompted for a password that will then'
@@ -202,8 +234,9 @@ def main():
 
     # Shell completion script installation
     if args.install_completion:
+        from shib import shellcompletion
         logger.info(f"Installing shell completion script for {args.install_completion} shell.")
-        shellcompletion_instance = shellcompletion.ShellCompletion(loglevel=log_level)
+        shellcompletion_instance = shellcompletion.ShellCompletion(exceptiontrace=args.exceptiontrace)
         shellcompletion_instance.install_completion(
             shell_type=args.install_completion,
             completion_location=args.completion_location
@@ -231,12 +264,6 @@ def main():
         logger.debug("Selected to filter by profile name with the"
         " following value: {0}".format(args.profilename))
     ###########################################################################
-
-    if args.duration:
-        session_duration = int(args.duration)
-        if 60*60*12 < session_duration <= 0:
-            raise argparse.ArgumentTypeError("%s is an invalid number"
-        " of seconds" % args.duration)
 
     if args.sort_display:
         logger.debug("Sort the display output by the following columns: {0}".format(args.sort_display))
@@ -276,10 +303,9 @@ def main():
         awsconfigfile = os.getenv('AWS_SHARED_CREDENTIALS_FILE', config_default)
     # Make directory for aws credentials file if it does not exist
     if not os.path.exists(awsconfigfile): 
-        os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True)
-        # Removing this since it means we create a 0 byte credentials file if we hit an exception later
-        # with open(expanduser(awsconfigfile), 'w'):
-        #     pass
+        config_dir_path = expanduser(os.path.dirname(awsconfigfile))
+        os.makedirs(config_dir_path, mode=0o700, exist_ok=True)
+        os.chmod(config_dir_path, 0o700) # Guarantee final permissions
 
     logger.debug("awsconfigfile: {0}".format(awsconfigfile))
 
@@ -341,7 +367,31 @@ def main():
     if password is None:
         print("You must provide a password in order to sign in")
     else:
+        # Start timer after password is entered.
+        if args.timer:
+            start_time = time.time()
+
         print("Processing authorization, this takes longer the more access you have selected.")
+        # Read in any existing credentials to allow filtering and speed up auth
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(awsconfigfile)
+        
+        # Create max duration dictionary for use in getting tokens during auth
+        try:
+            max_durations = {
+                f"{config.get(section, 'account_number')}-{config.get(section, 'role_name')}": int(config.get(section, 'max_duration'))
+                for section in config.sections()
+                if config.has_option(section, 'max_duration')
+                    and config.has_option(section, 'account_number')
+                    and config.has_option(section, 'role_name')
+                    and config.has_option(section, 'role_name')
+            }
+        except:
+            logger.error("Faiiled to parse max durations from aws config file, max duration will not be used to optimize token retrieval. Clear credentials file to fix.", exc_info=args.exceptiontrace)
+            max_durations = {}
+
+        # Create an instance of the ECPShib class to handle authentication and token retrieval
+        from shib import awsshib
         AWSCreds = awsshib.AWSAuthorization(
             username=username,
             password=password,
@@ -352,16 +402,17 @@ def main():
             output_format=outputformat,
             config_file=awsconfigfile,
             cookiejar_filename=cookiejar_filename,
-            loglevel=log_level,
             sort_display=args.sort_display,
-            split_display=args.split_display)
+            split_display=args.split_display,
+            max_durations=max_durations,
+            skip_max_duration_check=args.skip_max_duration_check,
+            max_duration_limit=args.max_duration_limit,
+            exceptiontrace=args.exceptiontrace
+        )
 
         # Process filters for authorization
         auth_args = []
         role_name_arg = {'role_name': args.rolename} if args.rolename else {}
-        if args.profilename or args.accountalias:
-            config = configparser.ConfigParser(interpolation=None)
-            config.read(awsconfigfile)
 
         if args.profilename: # Filter by specific profile
             for profilename in args.profilename:
@@ -416,6 +467,13 @@ def main():
                         "approve your Duo request")
                 if password_stored and keyring is not None:
                     keyring.delete_password("aws-federated-auth", "password")
+        
+    # Report time taken for script to run if --timer option selected
+    if args.timer:
+        end_time = time.time()
+        duration = end_time - start_time
+        min, sec = divmod(duration, 60)
+        print(f"Total time to authenticate: {int(min)}m {sec:.2f}s.")
 
 
 if __name__ == "__main__":
