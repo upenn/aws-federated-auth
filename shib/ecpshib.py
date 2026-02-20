@@ -17,13 +17,11 @@ __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
 __version__ = "1.0.1"
 
 #Requirements for Shib Processing
-import os
 import logging
 import requests
 import pickle
 import xml.etree.ElementTree as ET
 from uuid import uuid4
-from urllib.parse import urlparse, urlunparse
 import datetime
 
 logger = logging.getLogger(__name__)

@@ -57,18 +57,13 @@ variable.
 
 #Requirements for Shib Processing
 import os
-import base64
 import getpass
 import logging
-import requests
 import time
 
-import sys
 import argparse
 import configparser
 from os.path import expanduser
-from shib import awsshib
-from shib import shellcompletion
 
 logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
@@ -239,6 +234,7 @@ def main():
 
     # Shell completion script installation
     if args.install_completion:
+        from shib import shellcompletion
         logger.info(f"Installing shell completion script for {args.install_completion} shell.")
         shellcompletion_instance = shellcompletion.ShellCompletion(exceptiontrace=args.exceptiontrace)
         shellcompletion_instance.install_completion(
@@ -396,6 +392,7 @@ def main():
             max_durations = {}
 
         # Create an instance of the ECPShib class to handle authentication and token retrieval
+        from shib import awsshib
         AWSCreds = awsshib.AWSAuthorization(
             username=username,
             password=password,
