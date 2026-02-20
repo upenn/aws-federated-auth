@@ -85,6 +85,13 @@ aws-federated-auth --max-duration-limit 1200
 
 ```
 
+Install shell completion script for the command line (OMZ version and ZSH version still a work in progress)
+
+```console
+
+aws-federated-auth --install-completion bash
+```
+
 ### Authors/Credits
 
 jdenk@upenn.edu
