@@ -233,10 +233,9 @@ def main():
         awsconfigfile = os.getenv('AWS_SHARED_CREDENTIALS_FILE', config_default)
     # Make directory for aws credentials file if it does not exist
     if not os.path.exists(awsconfigfile): 
-        os.makedirs(expanduser(os.path.dirname(awsconfigfile)), exist_ok=True)
-        # Removing this since it means we create a 0 byte credentials file if we hit an exception later
-        # with open(expanduser(awsconfigfile), 'w'):
-        #     pass
+        config_dir_path = expanduser(os.path.dirname(awsconfigfile))
+        os.makedirs(config_dir_path, mode=0o700, exist_ok=True)
+        os.chmod(config_dir_path, 0o700) # Guarantee final permissions
 
     logger.debug("awsconfigfile: {0}".format(awsconfigfile))
 
