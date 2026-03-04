@@ -13,7 +13,8 @@ __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
 __version__ = "1.0.0"
 
 import os
-
+from botocore.config import Config
+from botocore import UNSIGNED
 import botocore.session
 from botocore.exceptions import ClientError
 
@@ -298,7 +299,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         # Create single STS client to be shared across all roles to speed up token retrieval
         botocore_session = botocore.session.Session(profile=None)
         session = boto3.session.Session(botocore_session=botocore_session, region_name=self.region)
-        sts_session = session.client('sts', region_name=self.region)
+        sts_session = session.client('sts', region_name=self.region, config=Config(signature_version=UNSIGNED))
 
         for aws_role in assertion_roles:
             role_arn = role_regex.match(aws_role).group(1)
