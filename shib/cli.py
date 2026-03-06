@@ -64,6 +64,7 @@ import time
 import argparse
 import configparser
 from os.path import expanduser
+import shib.constants
 
 logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
@@ -178,14 +179,18 @@ def main():
         ' Minimum is 900 seconds (15 minutes) and maximum is 43200 seconds (12 hours).'
         ' If this limit is higher than the max duration allowed by the role, the max' 
         ' duration of the role will take precedence.',
-        type=bounded_int(900, 43200),
-        default=43200
+        type=bounded_int(shib.constants.MaxDurationSeconds.LOWER_LIMIT, shib.constants.MaxDurationSeconds.UPPER_LIMIT),
+        default=shib.constants.MaxDurationSeconds.UPPER_LIMIT
     )
-    parser.add_argument('--skip-max-duration-check',
-        help='Skip the check to see if the max duration for a role has changed since from the max duration'
-        ' stored in the credentials file. Skipping the check will speed up the authentication process'
-        ' but may result in session durations that are not maximized.',
-        action='store_true'
+    parser.add_argument('--update-max-duration',
+        help='Set how aws-federated-auth decides to query and update the stored max duration of a role.'
+        ' The default setting of "new" means that the script will only query for the max duration of a role'
+        ' if no stored max duration is found for that role in the credentials file or if the stored max duration'
+        ' results in an error from AWS. Setting this flag to "all" will make the script update max duration for'
+        ' all roles regardless of circumstances. Setting this flag to "none" will make the script never'
+        ' update max duration, even if the stored max duration results in an error from AWS. The default',
+        choices=[value.value for value in shib.constants.UpdateMaxDurationOptions],
+        default=shib.constants.UpdateMaxDurationOptions.NEW.value,
     )
     parser.add_argument('--skip-alias-check',
         help='Skip the check to see if the account alias for an account has changed since it was last'
@@ -294,7 +299,7 @@ def main():
     # Speed up features
     ###########################################################################
     if args.quick:
-        args.skip_max_duration_check = True
+        args.update_max_duration = 'none'
         args.skip_alias_check = True
         logger.debug("Quick mode selected, skipping max duration and account alias checks to speed up authentication.")
 
@@ -411,7 +416,7 @@ def main():
                 )
                 if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
                     current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
-                        'max_duration': int(config.get(section, 'max_duration', fallback=3600))
+                        'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT))
                     }
                 if current_config_by_account_number[current_account_number]['account_alias'] is None:
                     config.get(section, 'account_alias', fallback=None)
@@ -431,7 +436,7 @@ def main():
             sort_display=args.sort_display,
             split_display=args.split_display,
             current_config_by_account_number=current_config_by_account_number,
-            skip_max_duration_check=args.skip_max_duration_check,
+            update_max_duration=args.update_max_duration,
             skip_alias_check=args.skip_alias_check,
             max_duration_limit=args.max_duration_limit,
             exceptiontrace=args.exceptiontrace
