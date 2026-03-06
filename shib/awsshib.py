@@ -27,6 +27,8 @@ import boto3
 import configparser
 from base64 import b64encode
 
+import concurrent.futures
+
 logger = logging.getLogger(__name__)
 
 class AWSRole(object):
@@ -525,12 +527,18 @@ class AWSAuthorization(ecpshib.ECPShib):
 
         if self.aws_accounts:
             if not access_list:
-                for account in self.aws_accounts:
-                    logger.debug(account.account_number)
-                    for aws_role in account.aws_roles:
-                        logger.debug("{0:4}".format(aws_role.profile_name))
-                        aws_role.get_token(assertion=self.assertion, region=self.region, update_max_duration=self.update_max_duration)
-                    account.set_alias(region=self.region, update_account_alias=self.update_account_alias)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = []
+                    for account in self.aws_accounts:
+                        logger.debug(account.account_number)
+                        for aws_role in account.aws_roles:
+                            logger.debug("{0:4}".format(aws_role.profile_name))
+                            futures.append(executor.submit(aws_role.get_token, assertion=self.assertion, region=self.region, update_max_duration=self.update_max_duration))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = []
+                    for account in self.aws_accounts:
+                        logger.debug(account.account_number)
+                        futures.append(executor.submit(account.set_alias, region=self.region, update_account_alias=self.update_account_alias))
                 self.write_profile()
                 if not silent:
                     self.display_roles(access_list=access_list)
