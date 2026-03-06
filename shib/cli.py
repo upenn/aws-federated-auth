@@ -187,6 +187,18 @@ def main():
         ' but may result in session durations that are not maximized.',
         action='store_true'
     )
+    parser.add_argument('--skip-alias-check',
+        help='Skip the check to see if the account alias for an account has changed since it was last'
+        ' stored in the credentials file. Skipping the check will speed up the authentication process'
+        ' but may result in profiles that are not updated with the latest account alias.'
+        ' However, account alias are for convenience only and will not impact the functionality'
+        ' of the credentials.',
+        action='store_true'
+    )
+    parser.add_argument('-Q', '--quick',
+        help='Quick mode. Skip both the max duration and account alias checks to speed up authentication.',
+        action='store_true'
+    )
     parser.add_argument('--storepass',
         help='Store the password to the system keyring service to allow for automatic retrieval'
         ' on following requests. If set, you will be prompted for a password that will then'
@@ -277,6 +289,16 @@ def main():
         env_default = "{0}/.aws-federated-auth.cookies".format(expanduser("~"))
         cookiejar_filename = os.getenv("COOKIEJAR", env_default)
     logger.debug("cookiejar_filename: {0}".format(cookiejar_filename))
+
+    ###########################################################################
+    # Speed up features
+    ###########################################################################
+    if args.quick:
+        args.skip_max_duration_check = True
+        args.skip_alias_check = True
+        logger.debug("Quick mode selected, skipping max duration and account alias checks to speed up authentication.")
+
+    ###########################################################################
 
     # The default AWS region that this script will connect
     # to for all API calls
@@ -376,19 +398,23 @@ def main():
         config = configparser.ConfigParser(interpolation=None)
         config.read(awsconfigfile)
         
-        # Create max duration dictionary for use in getting tokens during auth
-        try:
-            max_durations = {
-                f"{config.get(section, 'account_number')}-{config.get(section, 'role_name')}": int(config.get(section, 'max_duration'))
-                for section in config.sections()
-                if config.has_option(section, 'max_duration')
-                    and config.has_option(section, 'account_number')
-                    and config.has_option(section, 'role_name')
-                    and config.has_option(section, 'role_name')
-            }
-        except:
-            logger.error("Faiiled to parse max durations from aws config file, max duration will not be used to optimize token retrieval. Clear credentials file to fix.", exc_info=args.exceptiontrace)
-            max_durations = {}
+        # Create dict of current config file to aid in filtering and optimizing authentication
+        current_config_by_account_number = {}
+        for section in config.sections():
+            if (current_account_number := config.get(section, 'account_number', fallback=None)) is not None:
+                current_config_by_account_number.setdefault(
+                    current_account_number,
+                    {
+                        'roles':{},
+                        'account_alias': config.get(section, 'account_alias', fallback=None),
+                    }
+                )
+                if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
+                    current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
+                        'max_duration': int(config.get(section, 'max_duration', fallback=3600))
+                    }
+                if current_config_by_account_number[current_account_number]['account_alias'] is None:
+                    config.get(section, 'account_alias', fallback=None)
 
         # Create an instance of the ECPShib class to handle authentication and token retrieval
         from shib import awsshib
@@ -404,8 +430,9 @@ def main():
             cookiejar_filename=cookiejar_filename,
             sort_display=args.sort_display,
             split_display=args.split_display,
-            max_durations=max_durations,
+            current_config_by_account_number=current_config_by_account_number,
             skip_max_duration_check=args.skip_max_duration_check,
+            skip_alias_check=args.skip_alias_check,
             max_duration_limit=args.max_duration_limit,
             exceptiontrace=args.exceptiontrace
         )

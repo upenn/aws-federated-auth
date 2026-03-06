@@ -214,8 +214,9 @@ class AWSAuthorization(ecpshib.ECPShib):
         writeheader=False,
         sort_display=None,
         split_display=None,
-        max_durations={},
+        current_config_by_account_number={},
         skip_max_duration_check=False,
+        skip_alias_check=False,
         max_duration_limit=43200, # 12 hours, max duration limit for AWS sessions
         exceptiontrace=False
     ):
@@ -242,7 +243,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.sort_display = sort_display
         self.split_display = split_display
         self.longest_role_name = 12
-        self.max_durations = max_durations
+        self.current_config_by_account_number = current_config_by_account_number
         self.skip_max_duration_check = skip_max_duration_check
         self.max_duration_limit = max_duration_limit
         self.exceptiontrace = exceptiontrace
@@ -307,7 +308,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             role_name = role_arn.split('/')[-1]
             account_number = principal_arn.split(':')[4]
             profile_name = "{0}-{1}".format(account_number,role_name)
-            max_duration = self.max_durations.get(f"{account_number}-{role_name}", 3600) # Default to 3600 sec if not specified
+            max_duration = self.current_config_by_account_number.get(account_number, {}).get('roles', {}).get(role_name, {}).get('max_duration', 3600) # Default to 3600 sec if not specified
             role_list.append(AWSRole(
                 role_name=role_name,
                 role_arn=role_arn,
@@ -494,8 +495,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                                     aws_role.get_duration(region=self.region)
                                 except:
                                     logger.debug("Failed to get duration")
-                                prior_max_duration = self.max_durations.get(f"{aws_role.account_number}-{aws_role.role_name}", None)
-                                # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
+                                prior_max_duration = self.current_config_by_account_number.get(account.account_number, {}).get('roles', {}).get(aws_role.role_name, {}).get('max_duration', None)                                # Check if newly queried max duration is different from stored max duration, and if so attempt to get a new token with the new max duration
                                 if (int(aws_role.max_duration) > 3600 and aws_role.max_duration_limit > 3600
                                         and (prior_max_duration is None 
                                              or (int(aws_role.max_duration) < int(prior_max_duration)
