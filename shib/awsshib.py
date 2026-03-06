@@ -178,11 +178,12 @@ class AWSAccount(object):
         self,
         account_number,
         aws_roles=[],
-        account_alias=None
+        stored_account_alias=None
     ):
         self.account_number = account_number
         self.aws_roles = aws_roles
-        self.account_alias = account_alias
+        self.stored_account_alias = stored_account_alias
+        self.account_alias = stored_account_alias
 
     def __eq__(self, other): 
         """ set equality comparison """
@@ -208,22 +209,30 @@ class AWSAccount(object):
                 logger.debug("No match on {0}: {1}".format(key, value))
         return return_roles
     
-    def set_alias(self,region):
+    def set_alias(self,region,update_account_alias):
         """ attempt to read account alias with available roles """
-        account_alias = None
-        for role in self.aws_roles:
-            if not role.iam_session:
-                role.get_iam_session(region)
-            if role.iam_session:
-                try:
-                    check_aliases = role.iam_session.list_account_aliases()['AccountAliases']
-                    if check_aliases:
-                        account_alias = check_aliases[0]
-                    if account_alias:
-                        self.account_alias = account_alias
-                        break
-                except:
-                    logger.debug("no alias returned")
+        if (update_account_alias == shib.constants.UpdateAccountAliasOptions.ALL
+                or (update_account_alias == shib.constants.UpdateAccountAliasOptions.NEW and self.stored_account_alias is None)):
+            account_alias = None
+            for role in self.aws_roles:
+                if not role.token:
+                    continue
+                if not role.iam_session:
+                    role.get_iam_session(region)
+                if role.iam_session:
+                    try:
+                        check_aliases = role.iam_session.list_account_aliases()['AccountAliases']
+                        if check_aliases:
+                            account_alias = check_aliases[0]
+                        if account_alias:
+                            self.account_alias = account_alias
+                            break
+                    except:
+                        logger.debug("no alias returned")
+            if account_alias is None:
+                logger.debug("No account alias found for account {0}".format(self.account_number))
+                self.account_alias = None # Set account alias to None, which will erase any stored account alias that is not valid anymore
+        # Update profile names to use account alias instead of account number if account alias is found
         if self.account_alias:
             for role in self.aws_roles:
                 role.profile_name = role.profile_name.replace(
@@ -253,7 +262,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         split_display=None,
         current_config_by_account_number={},
         update_max_duration=shib.constants.UpdateMaxDurationOptions.NEW.value,
-        skip_alias_check=False,
+        update_account_alias=shib.constants.UpdateAccountAliasOptions.NEW.value,
         max_duration_limit=shib.constants.MaxDurationSeconds.UPPER_LIMIT.value,
         exceptiontrace=False
     ):
@@ -282,7 +291,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.longest_role_name = 12
         self.current_config_by_account_number = current_config_by_account_number
         self.update_max_duration = update_max_duration
-        self.skip_alias_check = skip_alias_check
+        self.update_account_alias = update_account_alias
         self.max_duration_limit = max_duration_limit
         self.exceptiontrace = exceptiontrace
 
@@ -372,7 +381,10 @@ class AWSAuthorization(ecpshib.ECPShib):
                         
                 else:
                     logger.debug("creating account {0} to append".format(account))
-                    new_account = AWSAccount(account_number=account)
+                    new_account = AWSAccount(
+                        account_number=account,
+                        stored_account_alias=self.current_config_by_account_number.get(account, {}).get('account_alias', None)
+                    )
                     new_account.aws_roles = [x for x in role_list if x.account_number == account]
                     self.append_account(new_account)
         else:
@@ -518,8 +530,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                     for aws_role in account.aws_roles:
                         logger.debug("{0:4}".format(aws_role.profile_name))
                         aws_role.get_token(assertion=self.assertion, region=self.region, update_max_duration=self.update_max_duration)
-                    if not account.account_alias:
-                        account.set_alias(region=self.region)
+                    account.set_alias(region=self.region, update_account_alias=self.update_account_alias)
                 self.write_profile()
                 if not silent:
                     self.display_roles(access_list=access_list)

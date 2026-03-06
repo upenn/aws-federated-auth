@@ -188,17 +188,19 @@ def main():
         ' if no stored max duration is found for that role in the credentials file or if the stored max duration'
         ' results in an error from AWS. Setting this flag to "all" will make the script update max duration for'
         ' all roles regardless of circumstances. Setting this flag to "none" will make the script never'
-        ' update max duration, even if the stored max duration results in an error from AWS. The default',
+        ' update max duration, even if the stored max duration results in an error from AWS.',
         choices=[value.value for value in shib.constants.UpdateMaxDurationOptions],
         default=shib.constants.UpdateMaxDurationOptions.NEW.value,
     )
-    parser.add_argument('--skip-alias-check',
-        help='Skip the check to see if the account alias for an account has changed since it was last'
-        ' stored in the credentials file. Skipping the check will speed up the authentication process'
-        ' but may result in profiles that are not updated with the latest account alias.'
-        ' However, account alias are for convenience only and will not impact the functionality'
-        ' of the credentials.',
-        action='store_true'
+    parser.add_argument('--update-account-alias',
+        help='Set how aws-federated-auth decides to query and update the stored account alias for an account.'
+        ' The default setting of "new" means that the script will only query for the account alias if no stored'
+        ' account alias is found for that account in the credentials file. Setting this flag to "all" will make'
+        ' the script query and update the account alias for all accounts regardless of circumstances. Setting'
+        ' this flag to "none" will make the script never update the account alias, even if there is no stored'
+        ' account alias.',
+        choices=[value.value for value in shib.constants.UpdateAccountAliasOptions],
+        default=shib.constants.UpdateAccountAliasOptions.NEW.value,
     )
     parser.add_argument('-Q', '--quick',
         help='Quick mode. Skip both the max duration and account alias checks to speed up authentication.',
@@ -437,7 +439,7 @@ def main():
             split_display=args.split_display,
             current_config_by_account_number=current_config_by_account_number,
             update_max_duration=args.update_max_duration,
-            skip_alias_check=args.skip_alias_check,
+            update_account_alias=args.update_account_alias,
             max_duration_limit=args.max_duration_limit,
             exceptiontrace=args.exceptiontrace
         )

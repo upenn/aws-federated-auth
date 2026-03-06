@@ -22,3 +22,14 @@ class UpdateMaxDurationOptions(StrEnum):
     NONE = 'none'
     ALL = 'all'
     NEW = 'new'
+
+class UpdateAccountAliasOptions(StrEnum):
+    """Enum for options for whether to update account alias for AWS accounts.
+    
+    'none' means do not update account alias and use the account alias stored in the config file or default to account number if not specified.
+    'all' means update account alias for all accounts regardless of whether there is a stored account alias in the config file.
+    'new' means only update account alias for accounts that do not have a stored account alias in the config file.
+    """
+    NONE = 'none'
+    ALL = 'all'
+    NEW = 'new'
