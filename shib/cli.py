@@ -57,25 +57,34 @@ variable.
 
 #Requirements for Shib Processing
 import os
-import base64
 import getpass
 import logging
-import requests
+import time
 
-import sys
 import argparse
 import configparser
 from os.path import expanduser
-from shib import awsshib
+import shib.constants
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
 log_channel = logging.StreamHandler()
 formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
 log_channel.setFormatter(formatter)
 logger.addHandler(log_channel)
 
+def bounded_int(min_value, max_value):
+    def _bounded_int(value):
+        try:
+            int_value = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{value} is not a valid integer") from exc
+        if int_value < min_value or int_value > max_value:
+            raise argparse.ArgumentTypeError(
+                f"{int_value} is out of range [{min_value}, {max_value}]"
+            )
+        return int_value
+    return _bounded_int
 
 def main():
     """Main: Set up variables argparse, failing back to environment variables.
@@ -89,11 +98,21 @@ def main():
     )
     parser.add_argument('--account',
         help='Filter profile response by account number.'
-        ' Check multiple accounts by added then with space separation.',
+        ' Check multiple accounts by added them with space separation.',
+        nargs='+')
+    parser.add_argument('--accountalias',
+        help='Filter profile response by account alias.'
+        ' This feature is similar to --account, but uses the account alias.'
+        ' Check multiple account aliases by added them with space separation.'
+        ' You must have previously authenticated in the past to filter by a specific account alias.',
         nargs='+')
     parser.add_argument('--rolename',
         help='Filter response by Role Name.'
         ' Ignores case and does substring match. Only value allowed.')
+    parser.add_argument('--profilename',
+        help='Filter response by profile name. Check multiple profiles by added them with space separation.'
+        ' You must have previously authenticated in the past to filter by a specific profile name.',
+        nargs='+')
     parser.add_argument('--list',
         help= 'Don\'t generate profiles, just list'
         ' available options passing filters.',
@@ -133,6 +152,8 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
+    
+    ########################## DEBUGGING OPTIONS ##########################
     parser.add_argument(
         "--logging",
         help="Set log level. IF LOGLEVEL environment value set, use that."
@@ -140,10 +161,51 @@ def main():
         type=str.lower,
         choices=["critical", "warn", "error", "info", "debug"],
     )
-    parser.add_argument('--duration',
-        help='Duration before timeout of session in seconds.'
-        ' Defaults to 1 hour / {0} seconds, min {1} max 12 hours / {2} '
-        'seconds.'.format(str(60*60),str(60*15),str(60*60*12)))
+    parser.add_argument(
+        "--exceptiontrace",
+        help='Shows exception tracebacks in the log output. Defaults to False.',
+        action='store_true'
+    )
+    parser.add_argument(
+        "--timer",
+        help="Report the duration that the script takes to run, starting from when the password"
+        " is entered.",
+        action="store_true"
+    )
+    #######################################################################
+
+    parser.add_argument('--max-duration-limit',
+        help='Limit the maximum duration before timeout of session in seconds.'
+        ' Minimum is 900 seconds (15 minutes) and maximum is 43200 seconds (12 hours).'
+        ' If this limit is higher than the max duration allowed by the role, the max' 
+        ' duration of the role will take precedence.',
+        type=bounded_int(shib.constants.MaxDurationSeconds.LOWER_LIMIT, shib.constants.MaxDurationSeconds.UPPER_LIMIT),
+        default=shib.constants.MaxDurationSeconds.UPPER_LIMIT
+    )
+    parser.add_argument('--update-max-duration',
+        help='Set how aws-federated-auth decides to query and update the stored max duration of a role.'
+        ' The default setting of "new" means that the script will only query for the max duration of a role'
+        ' if no stored max duration is found for that role in the credentials file or if the stored max duration'
+        ' results in an error from AWS. Setting this flag to "all" will make the script update max duration for'
+        ' all roles regardless of circumstances. Setting this flag to "none" will make the script never'
+        ' update max duration, even if the stored max duration results in an error from AWS.',
+        choices=[value.value for value in shib.constants.UpdateMaxDurationOptions],
+        default=shib.constants.UpdateMaxDurationOptions.NEW.value,
+    )
+    parser.add_argument('--update-account-alias',
+        help='Set how aws-federated-auth decides to query and update the stored account alias for an account.'
+        ' The default setting of "new" means that the script will only query for the account alias if no stored'
+        ' account alias is found for that account in the credentials file. Setting this flag to "all" will make'
+        ' the script query and update the account alias for all accounts regardless of circumstances. Setting'
+        ' this flag to "none" will make the script never update the account alias, even if there is no stored'
+        ' account alias.',
+        choices=[value.value for value in shib.constants.UpdateAccountAliasOptions],
+        default=shib.constants.UpdateAccountAliasOptions.NEW.value,
+    )
+    parser.add_argument('-Q', '--quick',
+        help='Quick mode. Skip both the max duration and account alias checks to speed up authentication.',
+        action='store_true'
+    )
     parser.add_argument('--storepass',
         help='Store the password to the system keyring service to allow for automatic retrieval'
         ' on following requests. If set, you will be prompted for a password that will then'
@@ -168,6 +230,18 @@ def main():
         choices=['account_number', 'max_duration', 'profile_name', 'role_name'],
         default=['account_number']
     )
+    parser.add_argument('--install-completion',
+        help='Install shell completion script for the specified shell type.'
+        ' Specifying this option will prevent AWS authentication from happening for this' \
+        ' specific run of the script.',
+        choices=['bash', 'omz'])
+    parser.add_argument('--completion-location',
+        help='Location to install the shell completion scripts.'
+        ' Defaults to ~/._aws_profile_complete.sh for bash and'
+        ' ~/.oh-my-zsh/completions/_aws_profile_export for oh-my-zsh.'
+        ' For omz, be sure that the location is in your $fpath and that the name of the file'
+        ' is _aws_profile_export.',
+        type=str)
 
     args = parser.parse_args()
     # Variables
@@ -177,23 +251,38 @@ def main():
 
     log_level = logging.getLevelName(logger.getEffectiveLevel())
 
+    # Shell completion script installation
+    if args.install_completion:
+        from shib import shellcompletion
+        logger.info(f"Installing shell completion script for {args.install_completion} shell.")
+        shellcompletion_instance = shellcompletion.ShellCompletion(exceptiontrace=args.exceptiontrace)
+        shellcompletion_instance.install_completion(
+            shell_type=args.install_completion,
+            completion_location=args.completion_location
+        )
+        return # Exit after installing completion script
+
     if args.list:
         logger.debug("Selected to only list results, rather than"
             " update profiles and tokens")
 
+    ##### Process arguments for filtering accounts and roles to authorize #####
     if args.account:
         logger.debug("Selected to filter by account with the"
         " following values: {0}".format(args.account))
+
+    if args.accountalias:
+        logger.debug("Selected to filter by account alias with the"
+        " following values: {0}".format(args.accountalias))
 
     if args.rolename:
         logger.debug("Selected to filter by role containing the"
         " following {0}".format(args.rolename))
 
-    if args.duration:
-        session_duration = int(args.duration)
-        if 60*60*12 < session_duration <= 0:
-            raise argparse.ArgumentTypeError("%s is an invalid number"
-        " of seconds" % args.duration)
+    if args.profilename:
+        logger.debug("Selected to filter by profile name with the"
+        " following value: {0}".format(args.profilename))
+    ###########################################################################
 
     if args.sort_display:
         logger.debug("Sort the display output by the following columns: {0}".format(args.sort_display))
@@ -207,6 +296,16 @@ def main():
         env_default = "{0}/.aws-federated-auth.cookies".format(expanduser("~"))
         cookiejar_filename = os.getenv("COOKIEJAR", env_default)
     logger.debug("cookiejar_filename: {0}".format(cookiejar_filename))
+
+    ###########################################################################
+    # Speed up features
+    ###########################################################################
+    if args.quick:
+        args.update_max_duration = 'none'
+        args.skip_alias_check = True
+        logger.debug("Quick mode selected, skipping max duration and account alias checks to speed up authentication.")
+
+    ###########################################################################
 
     # The default AWS region that this script will connect
     # to for all API calls
@@ -297,7 +396,35 @@ def main():
     if password is None:
         print("You must provide a password in order to sign in")
     else:
+        # Start timer after password is entered.
+        if args.timer:
+            start_time = time.time()
+
         print("Processing authorization, this takes longer the more access you have selected.")
+        # Read in any existing credentials to allow filtering and speed up auth
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(awsconfigfile)
+        
+        # Create dict of current config file to aid in filtering and optimizing authentication
+        current_config_by_account_number = {}
+        for section in config.sections():
+            if (current_account_number := config.get(section, 'account_number', fallback=None)) is not None:
+                current_config_by_account_number.setdefault(
+                    current_account_number,
+                    {
+                        'roles':{},
+                        'account_alias': config.get(section, 'account_alias', fallback=None),
+                    }
+                )
+                if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
+                    current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
+                        'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT))
+                    }
+                if current_config_by_account_number[current_account_number]['account_alias'] is None:
+                    config.get(section, 'account_alias', fallback=None)
+
+        # Create an instance of the ECPShib class to handle authentication and token retrieval
+        from shib import awsshib
         AWSCreds = awsshib.AWSAuthorization(
             username=username,
             password=password,
@@ -308,29 +435,79 @@ def main():
             output_format=outputformat,
             config_file=awsconfigfile,
             cookiejar_filename=cookiejar_filename,
-            loglevel=log_level,
             sort_display=args.sort_display,
-            split_display=args.split_display)
+            split_display=args.split_display,
+            current_config_by_account_number=current_config_by_account_number,
+            update_max_duration=args.update_max_duration,
+            update_account_alias=args.update_account_alias,
+            max_duration_limit=args.max_duration_limit,
+            exceptiontrace=args.exceptiontrace
+        )
 
-        auth_args = {}
-        if args.rolename:
-            auth_args['role_name'] = args.rolename
+        # Process filters for authorization
+        auth_args = []
+        role_name_arg = {'role_name': args.rolename} if args.rolename else {}
 
-        try:
-            if args.account:
-                for account in args.account:
-                    auth_args['account_number'] = account
-                    AWSCreds.authorize(**auth_args)
-            if not args.account:
-                if auth_args:
-                    AWSCreds.authorize(**auth_args)
-                else:
-                    AWSCreds.authorize()
-        except ValueError:
-            print("Unable to parse SAML assertions - this is probably because your password is incorrect or you failed to "
-                  "approve your Duo request")
-            if password_stored and keyring is not None:
-                keyring.delete_password("aws-federated-auth", "password")
+        if args.profilename: # Filter by specific profile
+            for profilename in args.profilename:
+                try:
+                    auth_args.append({
+                        'account_number': config.get(profilename, 'account_number'),
+                        'role_name': config.get(profilename, 'role_name')
+                    })
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    logger.error(f"The profile {profilename} you are trying to filter by does not exist in your"
+                    " aws credentials file. You must have previously authenticated in the past"
+                    " to filter by a specific profile name.")
+                    
+        if args.accountalias: # Filter by specific account alias
+            for accountalias in args.accountalias:
+                try:
+                    accountalias_found = False
+                    for section in config.sections():
+                        if section.startswith(accountalias + "-"):
+                            if config.get(section, 'account_alias', fallback=None) == accountalias:
+                                auth_args.append({
+                                    'account_number': config.get(section, 'account_number'),
+                                    **role_name_arg
+                                })
+                                accountalias_found = True
+                                break
+                    if not accountalias_found:
+                        logger.error(f"The account alias {accountalias} you are trying to filter by does not exist in your"
+                        " aws credentials file. You must have previously authenticated in the past"
+                        " to filter by a specific account alias.")
+                except (StopIteration, configparser.NoSectionError, configparser.NoOptionError):
+                    logger.error(f"The account alias {accountalias} you are trying to filter by does not exist in your"
+                    " aws credentials file. You must have previously authenticated in the past"
+                    " to filter by a specific account alias.")
+                
+        if args.account:
+            for account in args.account:
+                auth_args.append({
+                    'account_number': account,
+                    **role_name_arg
+                })
+                
+        if not auth_args: # Catch all if no account filters provided
+            auth_args.append({**role_name_arg})
+
+        # Authenticate
+        for auth_arg in auth_args:
+            try:
+                AWSCreds.authorize(**auth_arg)
+            except ValueError:
+                print("Unable to parse SAML assertions - this is probably because your password is incorrect or you failed to "
+                        "approve your Duo request")
+                if password_stored and keyring is not None:
+                    keyring.delete_password("aws-federated-auth", "password")
+        
+    # Report time taken for script to run if --timer option selected
+    if args.timer:
+        end_time = time.time()
+        duration = end_time - start_time
+        min, sec = divmod(duration, 60)
+        print(f"Total time to authenticate: {int(min)}m {sec:.2f}s.")
 
 
 if __name__ == "__main__":

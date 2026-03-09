@@ -13,10 +13,13 @@ __author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
 __version__ = "1.0.0"
 
 import os
-
+from botocore.config import Config
+from botocore import UNSIGNED
 import botocore.session
+from botocore.exceptions import ClientError
 
 from shib import ecpshib
+import shib.constants
 import logging
 import xml.etree.ElementTree as ET
 import re
@@ -24,13 +27,9 @@ import boto3
 import configparser
 from base64 import b64encode
 
+import concurrent.futures
+
 logger = logging.getLogger(__name__)
-logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
-logger.propagate = False
-log_channel = logging.StreamHandler()
-formatter = logging.Formatter('{"time":"%(asctime)s","name":"%(name)s","level":"%(levelname)8s","message":"%(message)s"}',"%Y-%m-%d %H:%M:%S")
-log_channel.setFormatter(formatter)
-logger.addHandler(log_channel)
 
 class AWSRole(object):
     """ Instantiates a role object """
@@ -41,11 +40,14 @@ class AWSRole(object):
         role_name,
         profile_name,
         account_number,
+        sts_session,
         token=None,
         boto_session=None,
         iam_session=None,
-        sts_session=None,
-        max_duration=3600
+        stored_max_duration=None,
+        max_duration=shib.constants.MaxDurationSeconds.DEFAULT.value,
+        max_duration_limit=shib.constants.MaxDurationSeconds.UPPER_LIMIT.value,
+        exceptiontrace=False
     ):
         self.principal_arn = principal_arn
         self.role_arn = role_arn
@@ -56,7 +58,10 @@ class AWSRole(object):
         self.boto_session = boto_session
         self.iam_session = iam_session
         self.sts_session = sts_session
-        self.max_duration = max_duration
+        self.stored_max_duration = stored_max_duration
+        self.max_duration = stored_max_duration or max_duration
+        self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
     def __eq__(self, other): 
         """ set equality comparison """
@@ -70,61 +75,74 @@ class AWSRole(object):
             #and self.profile_name == other.profile_name 
             and self.account_number == other.account_number
         )
-
-    def get_botocore_session(self):
-        logger.debug(f"Creating a new botocore session that will be used to create the higher level session object")
-        botocore_session = botocore.session.get_session()
-        available_profiles = botocore_session.available_profiles
-        is_profile_available = False
-        first_available_profile = None
-        if self.profile_name is not None:
-            logger.debug(f"Profile is set to {self.profile_name} - checking to make sure that profile is actually "
-                         f"available")
-            for available_profile in available_profiles:
-                if first_available_profile is None:
-                    first_available_profile = available_profile
-                if available_profile == self.profile_name:
-                    is_profile_available = True
-
-            if not is_profile_available:
-                logger.info(f"AWS profile {self.profile_name} provided via the AWS_PROFILE environment variable is not "
-                            f"available - switching to use {first_available_profile} as the profile for this session")
-                botocore_session.set_config_variable("profile", first_available_profile)
-
-        return botocore_session
-
-    def get_token(self, assertion, region):
-        """ get STS token from AWS for role """
+    
+    def get_token(self, assertion, region, update_max_duration, do_not_recurse=False):
+        """ get STS token from AWS for role 
+        
+        args:
+            do_not_recurse: boolean to control whether to allow recursive call in event of duration error.
+                This argument is a failsafe to avoid infinite recursion if there is a breaking change to AWS defaults.
+        """
+        logger.debug("aws_role.get_token() for {0:4}".format(self.profile_name))
+        duration_error = False
         try:
             logger.info(f"Starting STS session with profile {self.profile_name}")
-            botocore_session = self.get_botocore_session()
-
-            session = boto3.session.Session(botocore_session=botocore_session, region_name=region)
-            self.sts_session = session.client('sts', region_name=region)
             self.token = self.sts_session.assume_role_with_saml(
-                DurationSeconds=self.max_duration,
+                DurationSeconds=self.max_duration if self.max_duration < self.max_duration_limit else self.max_duration_limit,
                 RoleArn=self.role_arn,
                 PrincipalArn=self.principal_arn,
                 SAMLAssertion=assertion
             )   
-        except:
-            logger.exception("failed to establish STS connection for profile {0}".format(self.profile_name))
-            #raise ValueError
-    
+        except ClientError as e:
+            # Catch given duration too long error and attempt a shorter duration
+            if (e.response["Error"]["Code"] == "ValidationError"
+                    and "DurationSeconds exceeds the MaxSessionDuration" in e.response["Error"]["Message"]):
+                logger.warning("Requested duration of {0} seconds exceeds the maximum session duration for this role. Attempting default max duration.".format(self.max_duration), exc_info=self.exceptiontrace)
+                if not do_not_recurse:
+                    self.max_duration = shib.constants.MaxDurationSeconds.DEFAULT.value
+                    self.get_token(assertion, region, update_max_duration=shib.constants.UpdateMaxDurationOptions.NONE.value, do_not_recurse=True)
+                    duration_error = True
+                else:
+                    logger.warning("Already attempted to get token with default max duration, giving up on this role to avoid infinite loop.")
+                    return
+            else:
+                logger.warning("failed to establish STS connection for profile {0}".format(self.profile_name), exc_info=self.exceptiontrace)
+                return
+        # If no token was created, log and return
+        if not self.token:
+            logger.debug('No token was created for profile {0}. Not preceeding with session creation or duration check.'.format(self.profile_name))
+            return
+        # Update max duration if option set and if there is a valid token created
+        if update_max_duration != shib.constants.UpdateMaxDurationOptions.NONE:
+            if update_max_duration == shib.constants.UpdateMaxDurationOptions.ALL:
+                self.get_duration(region)
+            elif update_max_duration == shib.constants.UpdateMaxDurationOptions.NEW and (self.stored_max_duration is None or duration_error):
+                self.get_duration(region)
+            # Get new token if actual max duration means current token is not optimized for the new max duration limit
+            if self.max_duration > shib.constants.MaxDurationSeconds.DEFAULT and (self.stored_max_duration is None or self.max_duration != self.stored_max_duration):
+                logger.debug('Checking whether to get new token for updated max duration.')
+                if self.stored_max_duration is None or self.max_duration < self.stored_max_duration and shib.constants.MaxDurationSeconds.DEFAULT < self.max_duration_limit:
+                    logger.info(f"Getting new tokens for updated max_duration.")
+                    self.get_token(assertion, region, update_max_duration=shib.constants.UpdateMaxDurationOptions.NONE.value, do_not_recurse=True) # Do not update duration again
+                elif self.max_duration > self.stored_max_duration and self.stored_max_duration < self.max_duration_limit:
+                    logger.info(f"Getting new tokens for updated max_duration.")
+                    self.get_token(assertion, region, update_max_duration=shib.constants.UpdateMaxDurationOptions.NONE.value, do_not_recurse=True) # Do not update duration again
+                else:
+                    logger.debug('Not getting new token for updated max duration.')
+
+
     def get_session(self, region):
         """ establish an AWS session """
         if self.token:
             try:
-                botocore_session = self.get_botocore_session()
                 self.boto_session = boto3.Session(
                     aws_access_key_id=self.token['Credentials']['AccessKeyId'],
                     aws_secret_access_key=self.token['Credentials']['SecretAccessKey'],
                     aws_session_token=self.token['Credentials']['SessionToken'],
-                    botocore_session=botocore_session,
                     region_name=region
                 )
             except:
-                logger.exception(f"Failed to create boto session")
+                logger.error(f"Failed to create boto session", exc_info=self.exceptiontrace)
                 raise ValueError
         else:
             logger.warning("no token associated with role with which to generate session.")
@@ -133,7 +151,7 @@ class AWSRole(object):
         """ establish an IAM session """
         if not self.boto_session:
             self.get_session(region)
-        else:
+        if not self.iam_session:
             try:  
                 self.iam_session = self.boto_session.client(
                         'iam', 
@@ -152,8 +170,7 @@ class AWSRole(object):
                 logger.debug("Attempting to query max duration")
                 self.max_duration = self.iam_session.get_role(RoleName=self.role_name)['Role']['MaxSessionDuration']
             except:
-                logger.debug("Failed to query max duration")
-                raise ValueError
+                logger.warning("Failed to query max duration", exc_info=self.exceptiontrace)
         else:
             logger.warning("no token associated with role with which to generate session and configure duration.")
 
@@ -163,11 +180,12 @@ class AWSAccount(object):
         self,
         account_number,
         aws_roles=[],
-        account_alias=None
+        stored_account_alias=None
     ):
         self.account_number = account_number
         self.aws_roles = aws_roles
-        self.account_alias = account_alias
+        self.stored_account_alias = stored_account_alias
+        self.account_alias = stored_account_alias
 
     def __eq__(self, other): 
         """ set equality comparison """
@@ -193,22 +211,30 @@ class AWSAccount(object):
                 logger.debug("No match on {0}: {1}".format(key, value))
         return return_roles
     
-    def set_alias(self,region):
+    def set_alias(self,region,update_account_alias):
         """ attempt to read account alias with available roles """
-        account_alias = None
-        for role in self.aws_roles:
-            if not role.iam_session:
-                role.get_iam_session(region)
-            if role.iam_session:
-                try:
-                    check_aliases = role.iam_session.list_account_aliases()['AccountAliases']
-                    if check_aliases:
-                        account_alias = check_aliases[0]
-                    if account_alias:
-                        self.account_alias = account_alias
-                        break
-                except:
-                    logger.debug("no alias returned")
+        if (update_account_alias == shib.constants.UpdateAccountAliasOptions.ALL
+                or (update_account_alias == shib.constants.UpdateAccountAliasOptions.NEW and self.stored_account_alias is None)):
+            account_alias = None
+            for role in self.aws_roles:
+                if not role.token:
+                    continue
+                if not role.iam_session:
+                    role.get_iam_session(region)
+                if role.iam_session:
+                    try:
+                        check_aliases = role.iam_session.list_account_aliases()['AccountAliases']
+                        if check_aliases:
+                            account_alias = check_aliases[0]
+                        if account_alias:
+                            self.account_alias = account_alias
+                            break
+                    except:
+                        logger.debug("no alias returned")
+            if account_alias is None:
+                logger.debug("No account alias found for account {0}".format(self.account_number))
+                self.account_alias = None # Set account alias to None, which will erase any stored account alias that is not valid anymore
+        # Update profile names to use account alias instead of account number if account alias is found
         if self.account_alias:
             for role in self.aws_roles:
                 role.profile_name = role.profile_name.replace(
@@ -236,7 +262,11 @@ class AWSAuthorization(ecpshib.ECPShib):
         writeheader=False,
         sort_display=None,
         split_display=None,
-        loglevel="ERROR"
+        current_config_by_account_number={},
+        update_max_duration=shib.constants.UpdateMaxDurationOptions.NEW.value,
+        update_account_alias=shib.constants.UpdateAccountAliasOptions.NEW.value,
+        max_duration_limit=shib.constants.MaxDurationSeconds.UPPER_LIMIT.value,
+        exceptiontrace=False
     ):
         ecpshib.ECPShib.__init__(
             self,
@@ -248,7 +278,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             cookiejar_filename,
             tossoldcookies,
             sslverification,
-            loglevel
+            exceptiontrace
         )
         self.assertion = None
         self.session = None
@@ -260,9 +290,13 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.writeheader=True
         self.sort_display = sort_display
         self.split_display = split_display
+        self.longest_role_name = 12
+        self.current_config_by_account_number = current_config_by_account_number
+        self.update_max_duration = update_max_duration
+        self.update_account_alias = update_account_alias
+        self.max_duration_limit = max_duration_limit
+        self.exceptiontrace = exceptiontrace
 
-        logger.setLevel(logging.getLevelName(loglevel))
-        
     def get_account(self, account_number):
         """ query account numbers """
         logger.debug("Checking for account_number: {0}".format(account_number))
@@ -312,6 +346,11 @@ class AWSAuthorization(ecpshib.ECPShib):
         role_regex = re.compile('.*(arn:aws:iam::([0-9]+):role/([^,:]+)).*<')
         saml_regex = re.compile('.*(arn:aws:iam::([0-9]+):saml-provider/([^,:]+)).*')
         
+        # Create single STS client to be shared across all roles to speed up token retrieval
+        botocore_session = botocore.session.Session(profile=None)
+        session = boto3.session.Session(botocore_session=botocore_session, region_name=self.region)
+        sts_session = session.client('sts', region_name=self.region, config=Config(signature_version=UNSIGNED))
+
         for aws_role in assertion_roles:
             role_arn = role_regex.match(aws_role).group(1)
             principal_arn = saml_regex.match(aws_role).group(1)
@@ -323,7 +362,11 @@ class AWSAuthorization(ecpshib.ECPShib):
                 role_arn=role_arn,
                 principal_arn=principal_arn,
                 profile_name=profile_name,
-                account_number=account_number
+                account_number=account_number,
+                sts_session=sts_session,
+                stored_max_duration=self.current_config_by_account_number.get(account_number, {}).get('roles', {}).get(role_name, {}).get('max_duration', None),
+                max_duration_limit=self.max_duration_limit,
+                exceptiontrace=self.exceptiontrace
             ))
         if role_list:
             accounts = set([x.account_number for x in role_list])
@@ -340,7 +383,10 @@ class AWSAuthorization(ecpshib.ECPShib):
                         
                 else:
                     logger.debug("creating account {0} to append".format(account))
-                    new_account = AWSAccount(account_number=account)
+                    new_account = AWSAccount(
+                        account_number=account,
+                        stored_account_alias=self.current_config_by_account_number.get(account, {}).get('account_alias', None)
+                    )
                     new_account.aws_roles = [x for x in role_list if x.account_number == account]
                     self.append_account(new_account)
         else:
@@ -351,11 +397,9 @@ class AWSAuthorization(ecpshib.ECPShib):
         if access_list:
             template = "{0:65} {2:14} {3:12}"
             template_width = 65 + 1 + 14 + 1
-            longest_role_name = 12
         else:
             template = "{0:65} {1:12} {2:14} {3:12}"
             template_width = 65 + 1 + 12 + 1 + 14 + 1
-            longest_role_name = 12
         header = template.format(
             "profile_name".replace("_"," ").upper(),
             "max_duration".replace("_"," ").upper(),
@@ -380,7 +424,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                             'role_name': aws_role.role_name
                         }
                     )
-                    longest_role_name = max(longest_role_name, len(aws_role.role_name))
+                    self.longest_role_name = max(self.longest_role_name, len(aws_role.role_name))
 
         # Sort the output per sort argument
         if self.sort_display:
@@ -393,16 +437,22 @@ class AWSAuthorization(ecpshib.ECPShib):
             if self.split_display: 
                 for split_key in self.split_display:
                     if (role[split_key] != roles[i-1][split_key]) or i == 0:
-                        print("-" * (template_width + longest_role_name))
+                        print("-" * (template_width + self.longest_role_name))
                         break
             print(
                 template.format(
                     role['profile_name'],
-                    role['max_duration'],
+                    str(role['max_duration']) + ('*' if int(role['max_duration']) > self.max_duration_limit else '' ),
                     role['account_number'],
                     role['role_name']
                 )
             )
+        
+        # Show max duration limit note if needed
+        if self.max_duration_limit < shib.constants.MaxDurationSeconds.UPPER_LIMIT.value:
+            if any(int(role['max_duration']) > self.max_duration_limit for role in roles):
+                print("-" * (template_width + self.longest_role_name))
+                print(f"* = Max duration for this role limited to {self.max_duration_limit} seconds.")
 
     def write_profile(self):
         """ Output function for profile writing """
@@ -413,6 +463,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         config.read(file_name)
         has_content = False
         for account in self.aws_accounts:
+            account_alias = account.account_alias if account.account_alias else account.account_number
             for aws_role in account.aws_roles:
                 # Put the credentials into a saml specific section instead of clobbering
                 # the default credentials
@@ -425,6 +476,10 @@ class AWSAuthorization(ecpshib.ECPShib):
                     config.set(aws_role.profile_name, 'aws_access_key_id', aws_role.token['Credentials']['AccessKeyId'])
                     config.set(aws_role.profile_name, 'aws_secret_access_key', aws_role.token['Credentials']['SecretAccessKey'])
                     config.set(aws_role.profile_name, 'aws_session_token', aws_role.token['Credentials']['SessionToken'])
+                    config.set(aws_role.profile_name, 'account_number', aws_role.account_number)
+                    config.set(aws_role.profile_name, 'account_alias', account_alias)
+                    config.set(aws_role.profile_name, 'role_name', aws_role.role_name)
+                    config.set(aws_role.profile_name, 'max_duration', aws_role.max_duration)
                     has_content = True
 
         if has_content:
@@ -439,7 +494,6 @@ class AWSAuthorization(ecpshib.ECPShib):
         role_name=None,
         account_number=None,
         access_list=False,
-        duration=None,
         silent=False
     ):
         """ Function to navigate authorization """
@@ -473,42 +527,18 @@ class AWSAuthorization(ecpshib.ECPShib):
 
         if self.aws_accounts:
             if not access_list:
-                for account in self.aws_accounts:
-                    logger.debug(account.account_number)
-                    for aws_role in account.aws_roles:
-                        logger.debug("{0:4}".format(aws_role.profile_name))
-                        try:
-                            if duration: 
-                                aws_role.max_duration = duration
-                            aws_role.get_token(assertion=self.assertion, region=self.region)
-                        except:
-                            self.negotiate()
-                            aws_role.get_token(assertion=self.assertion, region=self.region)
-                        if aws_role.token:
-                            try:
-                                aws_role.get_session(region=self.region)
-                            except:
-                                logger.exception("Failed to establish a session for {0}".format(aws_role.profile_name))
-                                #raise ValueError
-                            try:
-                                if not duration:
-                                    aws_role.get_duration(region=self.region)
-                            except:
-                                logger.debug("Failed to get duration")
-                            if not duration and aws_role.max_duration != 3600:
-                                try:
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
-                                except:
-                                    self.negotiate()
-                                    aws_role.get_token(assertion=self.assertion,region=self.region)
-                                try:
-                                    aws_role.get_session(region=self.region)
-                                except:
-                                    raise ValueError
-                        else:
-                            logger.warning("No sts role token was created so no session can be established")
-                    if not account.account_alias:
-                        account.set_alias(region=self.region)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = []
+                    for account in self.aws_accounts:
+                        logger.debug(account.account_number)
+                        for aws_role in account.aws_roles:
+                            logger.debug("{0:4}".format(aws_role.profile_name))
+                            futures.append(executor.submit(aws_role.get_token, assertion=self.assertion, region=self.region, update_max_duration=self.update_max_duration))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = []
+                    for account in self.aws_accounts:
+                        logger.debug(account.account_number)
+                        futures.append(executor.submit(account.set_alias, region=self.region, update_account_alias=self.update_account_alias))
                 self.write_profile()
                 if not silent:
                     self.display_roles(access_list=access_list)
