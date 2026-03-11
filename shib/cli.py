@@ -223,14 +223,14 @@ def main():
     parser.add_argument('--user',
         help='Login as this user'
         ' If unset you will be prompted for user')
-    parser.add_argument('--sort_display',
+    parser.add_argument('--sort-display',
         help='Sort the display output. Listing multiple column names will'
         ' sort in ascending order of the column names listed. Defaults to sorting by profile_name.',
         nargs='+',
         choices=['account_number', 'max_duration', 'profile_name', 'role_name'],
         default=['profile_name']
     )
-    parser.add_argument('--split_display',
+    parser.add_argument('--split-display',
         help='Split the display output with a horizontal line between different groups.'
         ' Multiple columns names can be specified. Defaults to splitting by account_number.',
         nargs='+',
