@@ -407,8 +407,6 @@ def main():
         if args.timer:
             start_time = time.time()
 
-        print("Processing authorization, this takes longer the more access you have selected.")
-
         ###########################################################################################
         # Credentials file pre-processing
         ########################################################################################### 
