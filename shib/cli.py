@@ -134,6 +134,13 @@ def main():
         help='Filename to store the aws session credentions for potential'
         ' re-use. If unset AWSCONFIGFILE environment variables will be used,'
         ' otherwise, ~/.aws/credentials')
+    parser.add_argument('--resetawsconfigfile',
+        help='Clear all credentials stored in the aws config file before storing new credentials.'
+        ' Not compatible with filtering by account alias or profile name as these filters rely on'
+        ' the stored credentials file. Use with caution as this will delete any existing credentials'
+        ' stored in the config file, including manually stored credentials. This option is intended'
+        ' to be used to clean out cruft and replace corrupted credentials files.',
+        action='store_true')
     parser.add_argument('--sslverification',
         help='Controls if SSL confirmation of certs is used.'
         ' Defaults to true.',
@@ -401,27 +408,55 @@ def main():
             start_time = time.time()
 
         print("Processing authorization, this takes longer the more access you have selected.")
-        # Read in any existing credentials to allow filtering and speed up auth
-        config = configparser.ConfigParser(interpolation=None)
-        config.read(awsconfigfile)
-        
-        # Create dict of current config file to aid in filtering and optimizing authentication
-        current_config_by_account_number = {}
-        for section in config.sections():
-            if (current_account_number := config.get(section, 'account_number', fallback=None)) is not None:
-                current_config_by_account_number.setdefault(
-                    current_account_number,
-                    {
-                        'roles':{},
-                        'account_alias': config.get(section, 'account_alias', fallback=None),
-                    }
-                )
-                if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
-                    current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
-                        'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT.value))
-                    }
-                if current_config_by_account_number[current_account_number]['account_alias'] is None:
-                    config.get(section, 'account_alias', fallback=None)
+
+        ###########################################################################################
+        # Credentials file pre-processing
+        ########################################################################################### 
+        if not args.resetawsconfigfile:
+            # Read in any existing credentials to allow filtering and speed up auth
+            try:
+                config = configparser.ConfigParser(interpolation=None)
+                config.read(awsconfigfile)
+            except configparser.Error as e:
+                logger.error(f"Error parsing config file {awsconfigfile}", exc_info=args.exceptiontrace)
+                print("Current credentials file is corrupted or has invalid format. To continue, you must reset the credentials file to clear out the corrupted data.")
+                print(f"This will erase the existing credentials file located at {awsconfigfile}.")
+                print("Would you like to reset the credentials file? (y/n): ", end="")
+                reset_credentials_file_input = input().lower()
+                if reset_credentials_file_input == 'y':
+                    logger.debug("User selected to reset credentials file.")
+                    args.resetawsconfigfile = True
+                else:
+                    print("Exiting without authenticating.")
+                    return
+            
+            # Create dict of current config file to aid in filtering and optimizing authentication
+            current_config_by_account_number = {}
+            for section in config.sections():
+                if (current_account_number := config.get(section, 'account_number', fallback=None)) is not None:
+                    current_config_by_account_number.setdefault(
+                        current_account_number,
+                        {
+                            'roles':{},
+                            'account_alias': config.get(section, 'account_alias', fallback=None),
+                        }
+                    )
+                    if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
+                        current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
+                            'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT.value))
+                        }
+                    if current_config_by_account_number[current_account_number]['account_alias'] is None:
+                        config.get(section, 'account_alias', fallback=None)
+        if args.resetawsconfigfile: # Seperate if statement because args.resetawsconfigfile can be set above to True
+            current_config_by_account_number = {}
+            with open(os.open(awsconfigfile, os.O_CREAT|os.O_WRONLY|os.O_TRUNC, 0o600), "w") as configfile:
+                pass # Truncate
+            config = configparser.ConfigParser(interpolation=None) # Re-initialize config to empty after truncating file
+            config.read(awsconfigfile)
+
+        ###########################################################################################
+        # End credentials file pre-processing
+        ###########################################################################################
 
         # Create an instance of the ECPShib class to handle authentication and token retrieval
         from shib import awsshib
