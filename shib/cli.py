@@ -418,7 +418,7 @@ def main():
                 )
                 if (current_role_name := config.get(section, 'role_name', fallback=None)) is not None:
                     current_config_by_account_number[current_account_number]['roles'][current_role_name] = {
-                        'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT))
+                        'max_duration': int(config.get(section, 'max_duration', fallback=shib.constants.MaxDurationSeconds.DEFAULT.value))
                     }
                 if current_config_by_account_number[current_account_number]['account_alias'] is None:
                     config.get(section, 'account_alias', fallback=None)
