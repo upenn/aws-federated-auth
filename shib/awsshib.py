@@ -448,10 +448,18 @@ class AWSAuthorization(ecpshib.ECPShib):
                 )
             )
         
+        # Put final line after all roles are displayed to close off the display and any split sections
+        print("-" * (template_width + self.longest_role_name))
+        
+        # Note that cached values are being used if applicable
+        if self.update_account_alias != shib.constants.UpdateAccountAliasOptions.ALL:
+            print(f"Note: Cached account alias values used. See flag --update-account-alias for other options.")
+        if self.update_max_duration != shib.constants.UpdateMaxDurationOptions.ALL:
+            print(f"Note: Cached max duration values used. See flag --update-max-duration for other options.")
+
         # Show max duration limit note if needed
         if self.max_duration_limit < shib.constants.MaxDurationSeconds.UPPER_LIMIT.value:
             if any(int(role['max_duration']) > self.max_duration_limit for role in roles):
-                print("-" * (template_width + self.longest_role_name))
                 print(f"* = Max duration for this role limited to {self.max_duration_limit} seconds.")
 
     def write_profile(self):
