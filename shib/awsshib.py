@@ -258,7 +258,6 @@ class AWSAuthorization(ecpshib.ECPShib):
         cookiejar_filename=None,
         output_format = "json",
         tossoldcookies=True,
-        sslverification=True,
         writeheader=False,
         sort_display=None,
         split_display=None,
@@ -277,7 +276,6 @@ class AWSAuthorization(ecpshib.ECPShib):
             duo_factor,
             cookiejar_filename,
             tossoldcookies,
-            sslverification,
             exceptiontrace
         )
         self.assertion = None

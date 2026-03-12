@@ -141,11 +141,6 @@ def main():
         ' stored in the config file, including manually stored credentials. This option is intended'
         ' to be used to clean out cruft and replace corrupted credentials files.',
         action='store_true')
-    parser.add_argument('--sslverification',
-        help='Controls if SSL confirmation of certs is used.'
-        ' Defaults to true.',
-        type=bool,
-        default=True)
     parser.add_argument('--outputformat',
         help='Select the format of output responses.'
         ' If unset will use AWS_DEFAULT_OUTPUT environment variable,'
@@ -345,12 +340,7 @@ def main():
 
     logger.debug("awsconfigfile: {0}".format(awsconfigfile))
 
-    # SSL certificate verification: Whether or not strict certificate
-    # verification is done, False should only be used for dev/test
-    sslverification = args.sslverification
-    logger.debug("sslverification: {0}".format(sslverification))
-
-    # 
+    # shibboleth protected site you want to log into
     if args.assertionconsumer:
         consumer = args.assertionconsumer
     else:

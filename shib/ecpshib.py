@@ -40,7 +40,6 @@ class ECPShib(object):
         duo_factor=None,
         cookiejar_filename=None, 
         tossoldcookies=True, 
-        sslverification=True,
         exceptiontrace=False
     ):
         """ Instantiates an instance of PennShib. """
@@ -53,7 +52,6 @@ class ECPShib(object):
         self.password = password
         self.cookiejar_filename = cookiejar_filename
         self.tossoldcookies = tossoldcookies
-        self.sslverification = sslverification
         self.ns = {
             'S': 'http://schemas.xmlsoap.org/soap/envelope/',
             'saml2': 'urn:oasis:names:tc:SAML:2.0:assertion',
