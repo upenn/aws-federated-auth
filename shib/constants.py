@@ -1,5 +1,5 @@
 """Constant values used across the shib package"""
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum, StrEnum, auto
 
 class MaxDurationSeconds(IntEnum):
     """Enum for max duration seconds options for AWS sessions.
@@ -33,3 +33,17 @@ class UpdateAccountAliasOptions(StrEnum):
     NONE = 'none'
     ALL = 'all'
     NEW = 'new'
+
+class MaxDurationDisplayUnitsOptions(StrEnum):
+    """Enum for options for units to display max duration in."""
+    def __new__(cls, value, display_text, display_format, factor):
+        obj = str.__new__(cls)
+        obj._value_ = value
+        obj.display_text = display_text
+        obj.display_format = display_format
+        obj.factor = factor
+        return obj
+
+    SECONDS = auto(), 'sec', '>5.0f', 1
+    MINUTES = auto(), 'min', '>3.0f', 60
+    HOURS = auto(), 'hr', '>5.2g', 60 * 60

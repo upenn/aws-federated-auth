@@ -261,6 +261,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         writeheader=False,
         sort_display=None,
         split_display=None,
+        max_duration_display_units=shib.constants.MaxDurationDisplayUnitsOptions.HOURS.value,
         current_config_by_account_number={},
         update_max_duration=shib.constants.UpdateMaxDurationOptions.NEW.value,
         update_account_alias=shib.constants.UpdateAccountAliasOptions.NEW.value,
@@ -288,6 +289,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.writeheader=True
         self.sort_display = sort_display
         self.split_display = split_display
+        self.max_duration_display_units = max_duration_display_units
         self.longest_role_name = 12
         self.current_config_by_account_number = current_config_by_account_number
         self.update_max_duration = update_max_duration
@@ -417,7 +419,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                     roles.append(
                         {
                             'profile_name': aws_role.profile_name,
-                            'max_duration': aws_role.max_duration,
+                            'max_duration': aws_role.max_duration/shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).factor,
                             'account_number': account.account_number,
                             'role_name': aws_role.role_name
                         }
@@ -440,7 +442,7 @@ class AWSAuthorization(ecpshib.ECPShib):
             print(
                 template.format(
                     role['profile_name'],
-                    str(role['max_duration']) + ('*' if int(role['max_duration']) > self.max_duration_limit else '' ),
+                    f"{{:{shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_format}}}".format(role['max_duration']) + " " + shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_text + ('*' if int(role['max_duration']) > self.max_duration_limit else '' ),
                     role['account_number'],
                     role['role_name']
                 )

@@ -218,6 +218,8 @@ def main():
     parser.add_argument('--user',
         help='Login as this user'
         ' If unset you will be prompted for user')
+    
+    ########################## Display Options ##########################
     parser.add_argument('--sort-display',
         help='Sort the display output. Listing multiple column names will'
         ' sort in ascending order of the column names listed. Defaults to sorting by profile_name.',
@@ -232,6 +234,13 @@ def main():
         choices=['account_number', 'max_duration', 'profile_name', 'role_name'],
         default=['account_number']
     )
+    parser.add_argument('--max-duration-display-units',
+        help='Units to display max duration in. Defaults to hours.',
+        choices=[value.value for value in shib.constants.MaxDurationDisplayUnitsOptions],
+        default=shib.constants.MaxDurationDisplayUnitsOptions.HOURS.value
+    )
+    #####################################################################
+
     parser.add_argument('--install-completion',
         help='Install shell completion script for the specified shell type.'
         ' Specifying this option will prevent AWS authentication from happening for this' \
@@ -460,6 +469,7 @@ def main():
             cookiejar_filename=cookiejar_filename,
             sort_display=args.sort_display,
             split_display=args.split_display,
+            max_duration_display_units=args.max_duration_display_units,
             current_config_by_account_number=current_config_by_account_number,
             update_max_duration=args.update_max_duration,
             update_account_alias=args.update_account_alias,
