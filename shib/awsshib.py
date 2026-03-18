@@ -509,12 +509,12 @@ class AWSAuthorization(ecpshib.ECPShib):
             logger.debug("No assertion, negotiating.")
             self.negotiate()
         try:
-            logger.debug("Authorization first attempt.")
+            logger.debug("Authorization attempt.")
             self.get_aws_authorization()
         except:
-            logger.debug("Renegotiate. Authorization second attempt.")
-            self.negotiate()
-            self.get_aws_authorization()
+            logger.warning("Authorization failed.", exc_info=self.exceptiontrace)
+            print("Authentication Failed. Error obtaining ECP response.")
+            exit(1)
 
         if not self.aws_accounts:
             self.writeheader = True

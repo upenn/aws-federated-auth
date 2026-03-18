@@ -186,16 +186,21 @@ class ECPShib(object):
                     )
                     # if a bad username/password was entered, print a message to the user and exit(1)
                     if status is not None and 'status:AuthnFailed' in status.attrib['Value']:
-                        print("Authentication Failed, exiting, nothing done")
+                        print("Authentication Failed. Likely username or password incorrect.")
                         exit(1)
-                    #logger.debug(f"Status {status.attrib['Value']}")
                     logger.debug("Authenticated Successfully")
                     self.ecp_response = response.text
 
                 elif response.status_code == 500:
-                    logger.debug("Not Authorized")
+                    logger.warning("Not authorized. Received 500 status code. Likely 2FA prompt not satisfied.")
+                    print("Authentication Failed. Likely cause is that the two-factor authentication prompt in Duo Mobile was not accepted. Please try again.")
+                    exit(1)
+
                 else:
-                    logger.debug(f"Authentication failed with status code: {response.status_code}")
+                    logger.warning(f"Authentication failed with status code: {response.status_code}")
+                    print(f"Authentication Failed. Received {response.status_code} response from IDP.")
+                    exit(1)
+
             except Exception:
                 raise ValueError
         else:
