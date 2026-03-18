@@ -59,7 +59,6 @@ variable.
 import os
 import getpass
 import logging
-import time
 
 import argparse
 import configparser
@@ -167,12 +166,6 @@ def main():
         "--exceptiontrace",
         help='Shows exception tracebacks in the log output. Defaults to False.',
         action='store_true'
-    )
-    parser.add_argument(
-        "--timer",
-        help="Report the duration that the script takes to run, starting from when the password"
-        " is entered.",
-        action="store_true"
     )
     #######################################################################
 
@@ -402,10 +395,6 @@ def main():
     if password is None:
         print("You must provide a password in order to sign in")
     else:
-        # Start timer after password is entered.
-        if args.timer:
-            start_time = time.time()
-
         ###########################################################################################
         # Credentials file pre-processing
         ########################################################################################### 
@@ -535,13 +524,6 @@ def main():
                 if password_stored and keyring is not None:
                     keyring.delete_password("aws-federated-auth", "password")
         
-    # Report time taken for script to run if --timer option selected
-    if args.timer:
-        end_time = time.time()
-        duration = end_time - start_time
-        min, sec = divmod(duration, 60)
-        print(f"Total time to authenticate: {int(min)}m {sec:.2f}s.")
-
 
 if __name__ == "__main__":
     main()
