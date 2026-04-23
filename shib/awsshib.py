@@ -436,7 +436,6 @@ class AWSAuthorization(ecpshib.ECPShib):
                 roles.sort(key=lambda x: x[sort_key])
         
         # Display the roles
-        maximum_max_duration = 0 # Track maximum max duration across all roles for display of limit warning at the end if needed
         print_max_duration_limit_note = False
         print_max_duration_assertion_note = False
         for i,role in enumerate(roles):
