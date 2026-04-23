@@ -4,13 +4,10 @@
 
     Based on components of the: 
         get-aws-creds creds written by batzel@upenn.edu 20180110
-
-
+    And on work by
+        Jim Denk <jdenk@upenn.edu>
 
 """
-
-__author__ = "Jim Denk <jdenk@wharton.upenn.edu>"
-__version__ = "1.0.0"
 
 import os
 from botocore.config import Config

@@ -52,7 +52,6 @@ Windows users: Either use "--profile <profilename>" at the end of the
 command, or run "set AWS_PROFILE=profilename" to set an environment
 variable.
 
-
 """
 
 #Requirements for Shib Processing
@@ -64,6 +63,7 @@ import argparse
 import configparser
 from os.path import expanduser
 import shib.constants
+from shib import __version__
 
 logger = logging.getLogger('shib')
 logger.setLevel(level=os.environ.get("LOGLEVEL", "ERROR"))
@@ -153,6 +153,11 @@ def main():
         help='Filename to store session cookies for potential re-use.'
         ' If unset COOKIEJAR environment variables will be used,'
         ' otherwise, ~/.aws-federated-auth.cookies')
+    parser.add_argument('--version',
+        help='Print the current script version. Will not run script.',
+        action='version',
+        version=f'aws-federated-auth v{__version__}'        
+    )
     
     ########################## DEBUGGING OPTIONS ##########################
     parser.add_argument(
