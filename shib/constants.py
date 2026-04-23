@@ -44,6 +44,6 @@ class MaxDurationDisplayUnitsOptions(StrEnum):
         obj.factor = factor
         return obj
 
-    SECONDS = auto(), 'sec', '>5.0f', 1
-    MINUTES = auto(), 'min', '>3.0f', 60
-    HOURS = auto(), 'hr', '>5.2g', 60 * 60
+    SECONDS = auto(), 's', '>5.0f', 1
+    MINUTES = auto(), 'm', '>3.0f', 60
+    HOURS = auto(), 'h', '>5.2g', 60 * 60

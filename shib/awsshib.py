@@ -295,6 +295,7 @@ class AWSAuthorization(ecpshib.ECPShib):
         self.update_max_duration = update_max_duration
         self.update_account_alias = update_account_alias
         self.max_duration_limit = max_duration_limit
+        self.max_duration_assertion = None # If there is a max duration assertion, store here
         self.exceptiontrace = exceptiontrace
 
     def get_account(self, account_number):
@@ -336,13 +337,18 @@ class AWSAuthorization(ecpshib.ECPShib):
         saml_response = root.find('S:Body/saml2p:Response', self.ns)
         self.assertion = b64encode(assertion_text.encode('utf-8')).decode("us-ascii")
         logger.debug(self.assertion)
+        # Find session duration assertion if exists
+        session_duration_assertion = saml_response.find("saml2:Assertion/saml2:AttributeStatement/saml2:Attribute[@Name='https://aws.amazon.com/SAML/Attributes/SessionDuration']/saml2:AttributeValue", self.ns)
+        if session_duration_assertion is not None:
+            self.max_duration_assertion = int(session_duration_assertion.text)
+            logger.debug(f"Found session duration assertion with value of {self.max_duration_assertion} seconds.")
+        
+        # Find all roles
         assertion_roles = []
-
-        for xml_role in  saml_response.findall("saml2:Assertion/saml2:AttributeStatement/saml2:Attribute[@Name='https://aws.amazon.com/SAML/Attributes/Role']/saml2:AttributeValue", self.ns):
+        for xml_role in saml_response.findall("saml2:Assertion/saml2:AttributeStatement/saml2:Attribute[@Name='https://aws.amazon.com/SAML/Attributes/Role']/saml2:AttributeValue", self.ns):
             assertion_roles.append(ET.tostring(xml_role, encoding="unicode"))
 
         role_list = []
-        #pulls the AWS role into a c
         role_regex = re.compile('.*(arn:aws:iam::([0-9]+):role/([^,:]+)).*<')
         saml_regex = re.compile('.*(arn:aws:iam::([0-9]+):saml-provider/([^,:]+)).*')
         
@@ -419,7 +425,7 @@ class AWSAuthorization(ecpshib.ECPShib):
                     roles.append(
                         {
                             'profile_name': aws_role.profile_name,
-                            'max_duration': aws_role.max_duration/shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).factor,
+                            'max_duration': int(aws_role.max_duration),
                             'account_number': account.account_number,
                             'role_name': aws_role.role_name
                         }
@@ -433,16 +439,38 @@ class AWSAuthorization(ecpshib.ECPShib):
                 roles.sort(key=lambda x: x[sort_key])
         
         # Display the roles
+        maximum_max_duration = 0 # Track maximum max duration across all roles for display of limit warning at the end if needed
+        print_max_duration_limit_note = False
+        print_max_duration_assertion_note = False
         for i,role in enumerate(roles):
             if self.split_display: 
                 for split_key in self.split_display:
                     if (role[split_key] != roles[i-1][split_key]) or i == 0:
                         print("-" * (template_width + self.longest_role_name))
                         break
+            # Check on max duration limits
+            if self.max_duration_assertion is not None and self.max_duration_assertion < role['max_duration'] and self.max_duration_assertion < self.max_duration_limit:
+                # Limited by max duration SAML assertion
+                print_max_duration_assertion_note = True
+                temp_max_duration = self.max_duration_assertion
+                temp_max_duration_flag = "*"
+            elif self.max_duration_limit < role['max_duration']:
+                # Limited by max duration limit setting
+                print_max_duration_limit_note = True
+                temp_max_duration = self.max_duration_limit
+                temp_max_duration_flag = "†"
+            else:
+                temp_max_duration = role['max_duration']
+                temp_max_duration_flag = ""
+            # Print output
             print(
                 template.format(
                     role['profile_name'],
-                    f"{{:{shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_format}}}".format(role['max_duration']) + " " + shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_text + ('*' if int(role['max_duration']) > self.max_duration_limit else '' ),
+                    (
+                        f"{{:{shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_format}}}".format(temp_max_duration / shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).factor)
+                        + " " + shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_text
+                        + temp_max_duration_flag
+                    ),
                     role['account_number'],
                     role['role_name']
                 )
@@ -458,9 +486,13 @@ class AWSAuthorization(ecpshib.ECPShib):
             print(f"Note: Cached max duration values used. See flag --update-max-duration for other options.")
 
         # Show max duration limit note if needed
-        if self.max_duration_limit < shib.constants.MaxDurationSeconds.UPPER_LIMIT.value:
-            if any(int(role['max_duration']) > self.max_duration_limit for role in roles):
-                print(f"* = Max duration for this role limited to {self.max_duration_limit} seconds.")
+        if print_max_duration_assertion_note:
+            print(f"* = Max duration for this role limited to "
+                  f"{self.max_duration_assertion/shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).factor:{shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_format[2:]}}"
+                  f" {shib.constants.MaxDurationDisplayUnitsOptions(self.max_duration_display_units).display_text}"
+                  f" by max duration assertion in SAML response.")
+        if print_max_duration_limit_note:
+            print(f"† = Max duration for this role limited to {self.max_duration_limit} seconds by max duration assertion in SAML response.")
 
     def write_profile(self):
         """ Output function for profile writing """
