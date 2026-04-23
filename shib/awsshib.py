@@ -350,6 +350,8 @@ class AWSAuthorization(ecpshib.ECPShib):
         saml_regex = re.compile('.*(arn:aws:iam::([0-9]+):saml-provider/([^,:]+)).*')
         
         # Create single STS client to be shared across all roles to speed up token retrieval
+        for k in ('AWS_PROFILE', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'):
+            os.environ.pop(k, None) # Ensure AWS environment variables not set to avoid trying to load credentials from environment
         botocore_session = botocore.session.Session(profile=None)
         session = boto3.session.Session(botocore_session=botocore_session, region_name=self.region)
         sts_session = session.client('sts', region_name=self.region, config=Config(signature_version=UNSIGNED))
